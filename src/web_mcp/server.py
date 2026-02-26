@@ -98,6 +98,50 @@ async def health() -> dict:
     logger.info("Health check requested")
     return get_health_metrics()
 
+
+@mcp.tool()
+async def current_datetime(
+    timezone: str = Field(
+        default="UTC",
+        description="Timezone name (e.g., 'UTC', 'America/New_York', 'Europe/London')"
+    ),
+    format: str = Field(
+        default="iso",
+        description="Output format: 'iso' (ISO 8601), 'unix' (timestamp), or 'readable' (human-readable)"
+    )
+) -> str:
+    """Get the current date and time.
+    
+    Returns the current date and time in the specified timezone and format.
+    
+    Args:
+        timezone: Timezone name (default: UTC)
+        format: Output format - 'iso', 'unix', or 'readable'
+        
+    Returns:
+        Current date and time as a string
+    """
+    from datetime import datetime, timezone as tz
+    from zoneinfo import ZoneInfo
+    
+    increment_request_count()
+    
+    try:
+        if timezone.upper() == "UTC":
+            now = datetime.now(tz.utc)
+        else:
+            tz_info = ZoneInfo(timezone)
+            now = datetime.now(tz_info)
+        
+        if format == "unix":
+            return str(int(now.timestamp()))
+        elif format == "readable":
+            return now.strftime("%A, %B %d, %Y at %I:%M:%S %p %Z")
+        else:
+            return now.isoformat()
+    except Exception as e:
+        return f"Error: {e}"
+
 # Default extractor
 _default_extractor = TrafilaturaExtractor()
 _custom_extractor = CustomSelectorExtractor()
@@ -466,12 +510,12 @@ def main():
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         # Run as StreamableHTTP server
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
-        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream")
+        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream, current_datetime")
         mcp.run(transport="streamable-http", mount_path="/mcp")
     elif "--sse" in sys.argv:
         # Run as SSE server
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
-        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream")
+        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream, current_datetime")
         mcp.run(transport="sse", mount_path="/sse")
     else:
         # Run as stdio server (default)
