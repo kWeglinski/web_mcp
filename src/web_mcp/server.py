@@ -25,6 +25,7 @@ from web_mcp.logging import setup_logging, get_logger
 # Server configuration
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("WEB_MCP_SERVER_PORT", "8000"))
+VERSION = "1.0.0"
 
 # Setup logging
 setup_logging()
@@ -66,6 +67,7 @@ def get_health_metrics() -> dict:
     
     return {
         "status": "healthy",
+        "version": VERSION,
         "cache_hit_rate": round(cache_hit_rate, 4),
         "request_count": _request_count,
         "uptime_seconds": round(uptime, 2),
