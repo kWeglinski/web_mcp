@@ -290,27 +290,106 @@ async def fetch_url_simple(
     """
     config = get_config()
     
-    # Fetch the URL based on render mode
     try:
         if render == "playwright":
             html = await fetch_with_playwright_cached(url, config)
         elif render == "httpx":
             html = await fetch_html_httpx(url, config)
-        else:  # auto
+        else:
             html = await fetch_url_with_fallback(url, config)
     except (FetchError, PlaywrightFetchError) as e:
         return f"Error fetching URL: {e}"
     
-    # Extract content using Trafilatura
     try:
         extracted = await _default_extractor.extract(html, url)
     except Exception as e:
         return f"Error extracting content: {e}"
     
-    # Optimize for context window
     result = optimize_content(extracted.text, max_tokens, config)
     
     return result["text"]
+
+
+@mcp.tool()
+async def fetch_url_query(
+    url: str = Field(description="The URL to fetch"),
+    query: str = Field(description="What information to look for on the page"),
+    max_chunks: int = Field(
+        default=5,
+        description="Maximum number of relevant chunks to return (default: 5)"
+    ),
+    render: str = Field(
+        default="auto",
+        description="Render mode: 'auto' (httpx with playwright fallback), 'playwright' (force browser), or 'httpx' (static only)"
+    )
+) -> str:
+    """Fetch a URL and extract only content relevant to your query.
+    
+    Chunks the page content and returns only the chunks most relevant
+    to your query using BM25 ranking. Use this when you need specific
+    information from a page rather than the full content.
+    
+    Args:
+        url: The URL to fetch
+        query: What information you're looking for
+        max_chunks: Maximum chunks to return (default: 5)
+        render: Render mode - 'auto' tries httpx first, falls back to playwright
+        
+    Returns:
+        Most relevant chunks from the page
+    """
+    from web_mcp.research.chunker import chunk_text
+    from web_mcp.research.bm25 import BM25
+    
+    config = get_config()
+    
+    try:
+        if render == "playwright":
+            html = await fetch_with_playwright_cached(url, config)
+        elif render == "httpx":
+            html = await fetch_html_httpx(url, config)
+        else:
+            html = await fetch_url_with_fallback(url, config)
+    except (FetchError, PlaywrightFetchError) as e:
+        return f"Error fetching URL: {e}"
+    
+    try:
+        extracted = await _default_extractor.extract(html, url)
+    except Exception as e:
+        return f"Error extracting content: {e}"
+    
+    if not extracted.text or not extracted.text.strip():
+        return "No content extracted from page"
+    
+    chunks = chunk_text(
+        extracted.text,
+        url,
+        extracted.title or url,
+        chunk_size=500,
+        overlap=50,
+    )
+    
+    if not chunks:
+        return extracted.text[:2000] if extracted.text else "No content"
+    
+    documents = [{"text": c.text, "chunk": c} for c in chunks]
+    bm25 = BM25()
+    bm25.fit(documents, text_field="text")
+    ranked = bm25.rank(query)
+    
+    top_chunks = ranked[:max_chunks]
+    
+    if extracted.title:
+        header = f"Title: {extracted.title}\n\n"
+    else:
+        header = ""
+    
+    parts = []
+    for doc, score in top_chunks:
+        chunk = doc["chunk"]
+        parts.append(chunk.text)
+    
+    return header + "\n\n---\n\n".join(parts)
 
 
 class SearchResult(BaseModel):
@@ -333,9 +412,9 @@ async def web_search(
         default=10,
         description="Maximum number of search results to return (default: 10)"
     ),
-    fetch_content: bool = Field(
-        default=False,
-        description="Whether to fetch full content for each result (default: false)"
+    rerank: bool = Field(
+        default=True,
+        description="Rerank results by relevance using BM25 (default: true)"
     )
 ) -> list[SearchResult]:
     """Search the web using SearXNG.
@@ -346,7 +425,7 @@ async def web_search(
     Args:
         query: The search query string
         max_results: Maximum number of results to return (default: 10)
-        fetch_content: Whether to fetch full content for each result (default: false)
+        rerank: Rerank results by relevance using BM25 (default: true)
         
     Returns:
         List of search results with title, url, snippet, and optional content
@@ -355,21 +434,50 @@ async def web_search(
         SearXNGError: If the search fails or SearXNG is not configured
     """
     try:
-        results = await search(query, max_results)
+        fetch_count = max_results * 3 if rerank else max_results
+        fetch_count = min(fetch_count, 50)
         
-        if fetch_content:
-            from web_mcp.fetcher import FetchError, fetch_url_with_fallback as fetch_html
-            from web_mcp.config import get_config
-            
-            config = get_config()
-            for result in results:
-                url = result.get("url", "")
-                if url:
-                    try:
-                        html = await fetch_html(url, config)
-                        result["fetched_content"] = html
-                    except FetchError as e:
-                        result["fetch_error"] = str(e)
+        results = await search(query, fetch_count)
+        
+        if rerank and results:
+            from web_mcp.research.bm25 import rerank_search_results
+            results = rerank_search_results(results, query)
+            results = results[:max_results]
+        
+        return results
+        
+    except Exception as e:
+        return [
+            SearchResult(
+                title="Error",
+                url="",
+                snippet=f"Search failed: {e}",
+            )
+        ]
+
+
+@mcp.tool()
+async def web_search_simple(
+    query: str = Field(description="The search query string")
+) -> list[SearchResult]:
+    """Search the web using SearXNG and return top 3 results.
+    
+    Fetches 30 results, reranks by relevance using BM25, and returns the top 3.
+    Use this for quick searches when you just need the most relevant results.
+    
+    Args:
+        query: The search query string
+        
+    Returns:
+        Top 3 search results sorted by relevance
+    """
+    try:
+        results = await search(query, 30)
+        
+        if results:
+            from web_mcp.research.bm25 import rerank_search_results
+            results = rerank_search_results(results, query)
+            results = results[:3]
         
         return results
         
@@ -506,19 +614,17 @@ def main():
     """Run the MCP server."""
     import sys
     
-    # Check for transport mode
+    tools = "fetch_url, fetch_url_simple, fetch_url_query, web_search, web_search_simple, ask, ask_stream, current_datetime"
+    
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
-        # Run as StreamableHTTP server
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
-        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream, current_datetime")
+        logger.info(f"Tools available: {tools}")
         mcp.run(transport="streamable-http", mount_path="/mcp")
     elif "--sse" in sys.argv:
-        # Run as SSE server
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
-        logger.info("Tools available: fetch_url, fetch_url_simple, web_search, ask, ask_stream, current_datetime")
+        logger.info(f"Tools available: {tools}")
         mcp.run(transport="sse", mount_path="/sse")
     else:
-        # Run as stdio server (default)
         logger.info("Starting MCP server in stdio mode")
         mcp.run()
 

@@ -23,6 +23,10 @@ class LLMClient:
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self._config.request_timeout,
+                limits=httpx.Limits(
+                    max_connections=10,
+                    max_keepalive_connections=5,
+                ),
                 headers={
                     "Authorization": f"Bearer {self._config.api_key}",
                     "Content-Type": "application/json",

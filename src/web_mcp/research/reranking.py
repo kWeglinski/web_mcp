@@ -7,6 +7,8 @@ from typing import List, Tuple
 from web_mcp.llm.client import LLMClient, LLMError
 from web_mcp.llm.embeddings import EmbeddedChunk
 
+_MAX_CONCURRENT_LLM_CALLS = 5
+
 
 async def rerank_chunks(
     client: LLMClient,
@@ -32,18 +34,18 @@ async def rerank_chunks(
     if not chunks:
         return []
     
-    # Get the top chunks to rerank (use 2x to have candidates)
     candidates = chunks[:top_k * 2]
     
-    # Score all chunks in parallel for speed
+    semaphore = asyncio.Semaphore(_MAX_CONCURRENT_LLM_CALLS)
+    
     async def score_chunk(chunk, semantic_score):
-        relevance_score = await score_relevance(client, query, chunk.text)
+        async with semaphore:
+            relevance_score = await score_relevance(client, query, chunk.text)
         return (chunk, relevance_score)
     
     tasks = [score_chunk(chunk, score) for chunk, score in candidates]
     scored_chunks = await asyncio.gather(*tasks)
     
-    # Sort by relevance score
     scored_chunks.sort(key=lambda x: x[1], reverse=True)
     
     return scored_chunks[:top_k]

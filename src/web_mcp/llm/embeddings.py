@@ -3,10 +3,12 @@
 import asyncio
 import math
 from dataclasses import dataclass
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 from web_mcp.llm.client import LLMClient, LLMError
 from web_mcp.llm.embedding_cache import get_embedding_cache
+
+_MAX_CONCURRENT_BATCHES = 3
 
 
 @dataclass
@@ -46,16 +48,18 @@ async def _embed_batch(client: LLMClient, texts: List[str]) -> List[List[float]]
     """
     max_retries = 3
     base_delay = 1.0
+    last_error: Optional[LLMError] = None
     
     for attempt in range(max_retries):
         try:
             return await client.embed(texts)
         except LLMError as e:
+            last_error = e
             if attempt < max_retries - 1:
                 delay = base_delay * (2 ** attempt)
                 await asyncio.sleep(delay)
-            else:
-                raise
+    
+    raise last_error or LLMError("Embedding failed after retries")
 
 
 async def embed_chunks(
@@ -105,33 +109,31 @@ async def embed_chunks(
     all_uncached_embeddings = []
     
     if uncached_chunks:
-        # Group chunks into batches
         batches = []
         for i in range(0, len(uncached_chunks), batch_size):
             batch = uncached_chunks[i:i + batch_size]
             batches.append((batch, [c[0] for c in batch]))
         
-        # Process all batches in parallel
-        async def process_batch(batch, texts):
-            try:
-                embeddings = await _embed_batch(client, texts)
-                # Cache the embeddings
-                for chunk, emb in zip(batch, embeddings):
-                    cache.set(chunk[0], emb)
-                return list(zip(batch, embeddings))
-            except LLMError:
-                # If batch fails, try individual chunks
-                results = []
-                for chunk in batch:
-                    try:
-                        embeddings = await _embed_batch(client, [chunk[0]])
-                        cache.set(chunk[0], embeddings[0])
-                        results.append((chunk, embeddings[0]))
-                    except LLMError:
-                        pass
-                return results
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_BATCHES)
         
-        # Run all batch tasks in parallel
+        async def process_batch(batch, texts):
+            async with semaphore:
+                try:
+                    embeddings = await _embed_batch(client, texts)
+                    for chunk, emb in zip(batch, embeddings):
+                        cache.set(chunk[0], emb)
+                    return list(zip(batch, embeddings))
+                except LLMError:
+                    results = []
+                    for chunk in batch:
+                        try:
+                            embeddings = await _embed_batch(client, [chunk[0]])
+                            cache.set(chunk[0], embeddings[0])
+                            results.append((chunk, embeddings[0]))
+                        except LLMError:
+                            pass
+                    return results
+        
         batch_tasks = [process_batch(batch, texts) for batch, texts in batches]
         batch_results = await asyncio.gather(*batch_tasks)
         
