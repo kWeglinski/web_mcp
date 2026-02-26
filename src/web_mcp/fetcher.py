@@ -295,24 +295,12 @@ async def _fetch_with_redirect_validation(
     if not validate_url_ip(url):
         raise FetchError("URL resolves to private IP address - SSRF attempt blocked")
     
-    # Create redirect validator
-    validator = RedirectValidator(max_redirects=5)
-    
-    async def check_redirect(response: httpx.Response) -> bool:
-        """Event hook to validate redirects before following."""
-        if response.is_redirect:
-            next_url = response.headers.get('location', '')
-            return await validator.should_follow_redirect(next_url)
-        return True
-    
     try:
         client = get_connection_pool()
-        # Disable automatic redirect following and use custom validation
         response = await client.get(
             url,
             timeout=request_timeout,
             follow_redirects=True,
-            event_hooks={'redirect': [check_redirect]},
             headers={'User-Agent': config.user_agent}
         )
         
