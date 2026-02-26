@@ -12,7 +12,8 @@ from mcp.server.fastmcp import FastMCP
 from pydantic import BaseModel, Field
 
 from web_mcp.config import Config, get_config
-from web_mcp.fetcher import FetchError, fetch_url as fetch_html
+from web_mcp.fetcher import FetchError, fetch_url_with_fallback, fetch_url as fetch_html_httpx
+from web_mcp.playwright_fetcher import fetch_with_playwright_cached, PlaywrightFetchError
 from web_mcp.extractors.trafilatura import TrafilaturaExtractor
 from web_mcp.extractors.custom import CustomSelectorExtractor
 from web_mcp.optimizer import optimize_content, estimate_tokens
@@ -128,6 +129,10 @@ async def fetch_url(
     extractor: str = Field(
         default="trafilatura",
         description="Extractor to use: 'trafilatura', 'readability', or 'custom'"
+    ),
+    render: str = Field(
+        default="auto",
+        description="Render mode: 'auto' (httpx with playwright fallback), 'playwright' (force browser), or 'httpx' (static only)"
     )
 ) -> FetchResult:
     """Fetch and extract content from a URL with context optimization.
@@ -140,16 +145,22 @@ async def fetch_url(
         max_tokens: Maximum tokens in output (default: 120000)
         include_metadata: Include title, author, date in output
         extractor: Which extractor to use (trafilatura, readability, or custom)
+        render: Render mode - 'auto' tries httpx first, falls back to playwright for JS-heavy pages
         
     Returns:
         Extracted content with metadata and optimization info
     """
     config = get_config()
     
-    # Fetch the URL
+    # Fetch the URL based on render mode
     try:
-        html = await fetch_html(url, config)
-    except FetchError as e:
+        if render == "playwright":
+            html = await fetch_with_playwright_cached(url, config)
+        elif render == "httpx":
+            html = await fetch_html_httpx(url, config)
+        else:  # auto
+            html = await fetch_url_with_fallback(url, config)
+    except (FetchError, PlaywrightFetchError) as e:
         return FetchResult(
             url=url,
             text=f"Error fetching URL: {e}",
@@ -215,6 +226,10 @@ async def fetch_url_simple(
     max_tokens: int = Field(
         default=120000,
         description="Maximum number of tokens to return (default: 120000)"
+    ),
+    render: str = Field(
+        default="auto",
+        description="Render mode: 'auto' (httpx with playwright fallback), 'playwright' (force browser), or 'httpx' (static only)"
     )
 ) -> str:
     """Fetch and extract content from a URL (simplified version).
@@ -224,16 +239,22 @@ async def fetch_url_simple(
     Args:
         url: The URL to fetch
         max_tokens: Maximum tokens in output (default: 120000)
+        render: Render mode - 'auto' tries httpx first, falls back to playwright for JS-heavy pages
         
     Returns:
         Extracted text content
     """
     config = get_config()
     
-    # Fetch the URL
+    # Fetch the URL based on render mode
     try:
-        html = await fetch_html(url, config)
-    except FetchError as e:
+        if render == "playwright":
+            html = await fetch_with_playwright_cached(url, config)
+        elif render == "httpx":
+            html = await fetch_html_httpx(url, config)
+        else:  # auto
+            html = await fetch_url_with_fallback(url, config)
+    except (FetchError, PlaywrightFetchError) as e:
         return f"Error fetching URL: {e}"
     
     # Extract content using Trafilatura
