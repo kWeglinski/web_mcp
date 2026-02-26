@@ -14,6 +14,11 @@ COPY src/ ./src/
 # Install dependencies and the package itself
 RUN uv sync --frozen
 
+# Install Playwright system dependencies and browser
+# Must be done as root before creating user
+RUN uv run playwright install-deps chromium && \
+    uv run playwright install chromium
+
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app

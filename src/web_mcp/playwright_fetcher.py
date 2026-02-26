@@ -62,6 +62,8 @@ def install_browsers() -> None:
     
     This is called via the web-mcp-install script entry point.
     """
+    import platform
+    
     print("Installing Playwright Chromium browser...")
     result = subprocess.run(
         [sys.executable, "-m", "playwright", "install", "chromium"],
@@ -70,6 +72,9 @@ def install_browsers() -> None:
     )
     if result.returncode == 0:
         print("✓ Chromium installed successfully")
+        if platform.system() == "Linux":
+            print("\nNote: On Linux, you may also need system dependencies.")
+            print("Run with sudo if needed: sudo playwright install-deps chromium")
     else:
         print(f"✗ Failed to install Chromium: {result.stderr}")
         sys.exit(1)
@@ -190,6 +195,11 @@ async def fetch_with_playwright(
             
     except Exception as e:
         error_msg = str(e)
+        if "libglib" in error_msg or "shared libraries" in error_msg:
+            raise PlaywrightFetchError(
+                "Playwright system dependencies missing. "
+                "Run: playwright install-deps chromium (requires root/sudo)"
+            )
         if "Timeout" in error_msg or "timeout" in error_msg.lower():
             raise PlaywrightFetchError(f"Page load timed out: {error_msg}")
         raise PlaywrightFetchError(f"Failed to load page: {error_msg}")
