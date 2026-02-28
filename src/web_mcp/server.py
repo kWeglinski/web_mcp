@@ -416,11 +416,11 @@ async def web_search(
         default=True,
         description="Rerank results by relevance using BM25 (default: true)"
     )
-) -> list[SearchResult]:
-    """Search the web using SearXNG.
+) -> str:
+    """Search the web using SearXNG and return results as LLM-optimized markdown.
     
     This tool performs a search query against a configured SearXNG instance
-    and returns search results with titles, URLs, and snippets.
+    and returns search results formatted as markdown for optimal LLM context.
     
     Args:
         query: The search query string
@@ -428,11 +428,10 @@ async def web_search(
         rerank: Rerank results by relevance using BM25 (default: true)
         
     Returns:
-        List of search results with title, url, snippet, and optional content
-        
-    Raises:
-        SearXNGError: If the search fails or SearXNG is not configured
+        Markdown-formatted search results
     """
+    from web_mcp.searxng import parse_searxng_to_markdown
+    
     try:
         fetch_count = max_results * 3 if rerank else max_results
         fetch_count = min(fetch_count, 50)
@@ -442,53 +441,43 @@ async def web_search(
         if rerank and results:
             from web_mcp.research.bm25 import rerank_search_results
             results = rerank_search_results(results, query)
-            results = results[:max_results]
         
-        return results
+        json_data = {"results": results}
+        return parse_searxng_to_markdown(json_data, query, max_results=max_results)
         
     except Exception as e:
-        return [
-            SearchResult(
-                title="Error",
-                url="",
-                snippet=f"Search failed: {e}",
-            )
-        ]
+        return f"*Search failed: {e}*"
 
 
 @mcp.tool()
 async def web_search_simple(
     query: str = Field(description="The search query string")
-) -> list[SearchResult]:
-    """Search the web using SearXNG and return top 3 results.
+) -> str:
+    """Search the web using SearXNG and return results as LLM-optimized markdown.
     
-    Fetches 30 results, reranks by relevance using BM25, and returns the top 3.
-    Use this for quick searches when you just need the most relevant results.
+    Fetches 30 results, reranks by relevance using BM25, and returns top 5
+    formatted as markdown for optimal LLM context window usage.
     
     Args:
         query: The search query string
         
     Returns:
-        Top 3 search results sorted by relevance
+        Markdown-formatted search results
     """
+    from web_mcp.searxng import parse_searxng_to_markdown
+    
     try:
         results = await search(query, 30)
         
         if results:
             from web_mcp.research.bm25 import rerank_search_results
             results = rerank_search_results(results, query)
-            results = results[:3]
         
-        return results
+        json_data = {"results": results}
+        return parse_searxng_to_markdown(json_data, query, max_results=5)
         
     except Exception as e:
-        return [
-            SearchResult(
-                title="Error",
-                url="",
-                snippet=f"Search failed: {e}",
-            )
-        ]
+        return f"*Search failed: {e}*"
 
 
 class AskResult(BaseModel):
