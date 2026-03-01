@@ -220,53 +220,21 @@ _custom_extractor = CustomSelectorExtractor()
 @mcp.tool()
 async def get_page(
     url: str = Field(description="The URL to fetch"),
-    mode: str = Field(
-        default="full",
-        description="Fetch mode: 'full' (entire page), 'simple' (text only), or 'query' (relevant chunks only)"
-    ),
     query: Optional[str] = Field(
         default=None,
-        description="Required for 'query' mode: what information to look for on the page"
-    ),
-    max_tokens: int = Field(
-        default=120000,
-        description="Maximum number of tokens to return (default: 120000, for 'full'/'simple' modes)"
-    ),
-    max_chunks: int = Field(
-        default=5,
-        description="Maximum number of relevant chunks to return (default: 5, for 'query' mode)"
-    ),
-    include_metadata: bool = Field(
-        default=True,
-        description="Whether to include metadata (title, author, date) - 'full' mode only"
+        description="If provided, returns only chunks relevant to this query using BM25 ranking"
     ),
     extractor: str = Field(
         default="trafilatura",
-        description="Extractor to use: 'trafilatura', 'readability', or 'custom' - 'full' mode only"
-    ),
-    render: str = Field(
-        default="auto",
-        description="Render mode: 'auto' (httpx with playwright fallback), 'playwright' (force browser), or 'httpx' (static only)"
+        description="Extractor to use: 'trafilatura', 'readability', or 'custom'"
     )
 ) -> str:
-    """Fetch and extract content from a URL with context optimization.
-    
-    This tool fetches a web page, extracts the main content, and returns it
-    in one of three modes:
-    
-    - 'full': Entire page content with optional metadata (default)
-    - 'simple': Text content only, no metadata
-    - 'query': Only chunks relevant to your query using BM25 ranking
+    """Fetch and extract content from a URL.
     
     Args:
         url: The URL to fetch
-        mode: Fetch mode - 'full', 'simple', or 'query'
-        query: Required for 'query' mode - what information to look for
-        max_tokens: Maximum tokens in output (for 'full'/'simple' modes)
-        max_chunks: Maximum chunks to return (for 'query' mode)
-        include_metadata: Include title, author, date (for 'full' mode)
-        extractor: Which extractor to use (for 'full' mode)
-        render: Render mode - 'auto' tries httpx first, falls back to playwright
+        query: If provided, returns only relevant chunks using BM25 ranking
+        extractor: Which extractor to use
         
     Returns:
         Extracted text content
@@ -274,19 +242,11 @@ async def get_page(
     config = get_config()
     
     try:
-        if render == "playwright":
-            html = await fetch_with_playwright_cached(url, config)
-        elif render == "httpx":
-            html = await fetch_html_httpx(url, config)
-        else:
-            html = await fetch_url_with_fallback(url, config)
+        html = await fetch_url_with_fallback(url, config)
     except (FetchError, PlaywrightFetchError) as e:
         return f"Error fetching URL: {e}"
     
-    if mode == "query":
-        if not query:
-            return "Error: 'query' parameter is required for 'query' mode"
-        
+    if query:
         from web_mcp.research.chunker import chunk_text
         from web_mcp.research.bm25 import BM25
         
@@ -314,7 +274,7 @@ async def get_page(
         bm25.fit(documents, text_field="text")
         ranked = bm25.rank(query)
         
-        top_chunks = ranked[:max_chunks]
+        top_chunks = ranked[:5]
         
         if extracted.title:
             header = f"Title: {extracted.title}\n\n"
@@ -327,15 +287,6 @@ async def get_page(
             parts.append(chunk.text)
         
         return header + "\n\n---\n\n".join(parts)
-    
-    if mode == "simple":
-        try:
-            extracted = await _default_extractor.extract(html, url)
-        except Exception as e:
-            return f"Error extracting content: {e}"
-        
-        result = optimize_content(extracted.text, max_tokens, config)
-        return result["text"]
     
     if extractor == "readability":
         from web_mcp.extractors.readability import ReadabilityExtractor
@@ -350,24 +301,7 @@ async def get_page(
     except Exception as e:
         return f"Error extracting content: {e}"
     
-    if include_metadata:
-        parts = []
-        if extracted.title:
-            parts.append(f"Title: {extracted.title}")
-        if extracted.author:
-            parts.append(f"Author: {extracted.author}")
-        if extracted.date:
-            parts.append(f"Date: {extracted.date}")
-        if extracted.language:
-            parts.append(f"Language: {extracted.language}")
-        parts.append("Content:")
-        parts.append(extracted.text)
-        text = "\n".join(parts)
-    else:
-        text = extracted.text
-    
-    result = optimize_content(text, max_tokens, config)
-    return result["text"]
+    return extracted.text
 
 
 @mcp.tool()
