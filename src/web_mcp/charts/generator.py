@@ -1,3 +1,4 @@
+import base64
 import plotly.graph_objects as go
 import plotly.express as px
 from typing import Any, Literal
@@ -255,6 +256,16 @@ CHART_BUILDERS = {
 
 
 def create_chart(config: ChartConfig) -> str:
+    fig = _build_figure(config)
+    
+    return fig.to_html(
+        include_plotlyjs="cdn",
+        full_html=True,
+        config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
+    )
+
+
+def _build_figure(config: ChartConfig) -> go.Figure:
     chart_type = config.type
     if chart_type not in CHART_BUILDERS:
         raise ChartError(f"Unknown chart type: {chart_type}. Valid types: {list(CHART_BUILDERS.keys())}")
@@ -286,12 +297,48 @@ def create_chart(config: ChartConfig) -> str:
                 for i, trace in enumerate(fig.data):
                     if i < len(colors):
                         if hasattr(trace, "marker"):
-                            trace.marker.color = colors[i]
+                            trace.marker.color = colors[i]  # type: ignore
                         elif hasattr(trace, "line"):
-                            trace.line.color = colors[i]
+                            trace.line.color = colors[i]  # type: ignore
     
-    return fig.to_html(
-        include_plotlyjs="cdn",
-        full_html=True,
-        config={"responsive": True, "displayModeBar": True, "scrollZoom": True},
-    )
+    return fig
+
+
+_chrome_installed = False
+
+
+def _ensure_chrome() -> bool:
+    global _chrome_installed
+    if _chrome_installed:
+        return True
+    
+    try:
+        import kaleido
+        kaleido.get_chrome_sync()
+        _chrome_installed = True
+        return True
+    except Exception:
+        return False
+
+
+def create_chart_image(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> str:
+    fig = _build_figure(config)
+    fig.update_layout(width=width, height=height)
+    
+    try:
+        img_bytes = fig.to_image(format=format, engine="kaleido")
+    except RuntimeError as e:
+        if "Chrome" in str(e) or "kaleido" in str(e).lower():
+            if _ensure_chrome():
+                img_bytes = fig.to_image(format=format, engine="kaleido")
+            else:
+                raise ChartError(
+                    "Chart image generation requires Chrome. Install it with: plotly_get_chrome or kaleido_get_chrome"
+                )
+        else:
+            raise
+    
+    b64 = base64.b64encode(img_bytes).decode("utf-8")
+    
+    mime_type = f"image/{format}"
+    return f"data:{mime_type};base64,{b64}"

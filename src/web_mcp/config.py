@@ -19,6 +19,9 @@ ENV_CACHE_TTL = "WEB_MCP_CACHE_TTL"
 ENV_PLAYWRIGHT_ENABLED = "WEB_MCP_PLAYWRIGHT_ENABLED"
 ENV_PLAYWRIGHT_TIMEOUT = "WEB_MCP_PLAYWRIGHT_TIMEOUT"
 ENV_PLAYWRIGHT_FALLBACK_THRESHOLD = "WEB_MCP_PLAYWRIGHT_FALLBACK_THRESHOLD"
+ENV_PUBLIC_URL = "WEB_MCP_PUBLIC_URL"
+ENV_AUTH_TOKEN = "WEB_MCP_AUTH_TOKEN"
+ENV_CONTENT_TTL = "WEB_MCP_CONTENT_TTL"
 
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
@@ -102,6 +105,16 @@ class Config:
         # Below this, fallback to playwright
         self.playwright_fallback_threshold: int = self._validate_int(
             os.environ.get(ENV_PLAYWRIGHT_FALLBACK_THRESHOLD, "500"), 0, 100000
+        )
+        
+        self.public_url: Optional[str] = os.environ.get(ENV_PUBLIC_URL, None)
+        if self.public_url:
+            self.public_url = self.public_url.rstrip("/")
+        
+        self.auth_token: Optional[str] = os.environ.get(ENV_AUTH_TOKEN, None)
+        
+        self.content_ttl: int = self._validate_int(
+            os.environ.get(ENV_CONTENT_TTL, "3600"), 60, 86400
         )
     
     def _validate_int(self, value: Optional[str], min_val: int, max_val: int) -> int:
