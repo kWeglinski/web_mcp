@@ -22,6 +22,7 @@ from web_mcp.research.pipeline import research, research_stream, ResearchResult
 from web_mcp.research.citations import Source
 from web_mcp.llm.config import get_llm_config
 from web_mcp.logging import setup_logging, get_logger
+from web_mcp.charts import create_chart, ChartConfig, ChartError
 
 # Server configuration
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
@@ -597,6 +598,83 @@ async def ask_stream(
         parts.append(chunk)
     
     return "".join(parts)
+
+
+@mcp.tool()
+async def create_chart_tool(
+    type: str = Field(
+        description="Chart type: line, bar, scatter, pie, area, histogram, box, heatmap, treemap, sunburst, funnel, gauge, indicator, bubble"
+    ),
+    data: dict = Field(
+        description="Chart data as JSON. Keys vary by chart type. Common: x, y, values, labels, names"
+    ),
+    title: str = Field(
+        default="",
+        description="Chart title"
+    ),
+    x_label: str = Field(
+        default="",
+        description="X-axis label"
+    ),
+    y_label: str = Field(
+        default="",
+        description="Y-axis label"
+    ),
+    options: dict = Field(
+        default_factory=dict,
+        description="Additional options: width, height, template, show_legend, colors"
+    ),
+) -> str:
+    """Create an interactive Plotly chart and return HTML.
+    
+    Creates 14 chart types with modern, interactive visualizations.
+    
+    Chart types and required data keys:
+    - line, bar, scatter, area: x (labels), y (values)
+    - pie: labels, values
+    - histogram: x (values to bin)
+    - box: y (values), optional x (groups)
+    - heatmap: z (2D matrix), optional x, y (labels)
+    - treemap, sunburst: labels, values, parents
+    - funnel: labels (stages), values
+    - gauge: value, optional min, max, threshold
+    - indicator: value, optional delta (reference value)
+    - bubble: x, y, size, optional color
+    
+    Args:
+        type: Chart type (line, bar, scatter, pie, area, histogram, box, heatmap, treemap, sunburst, funnel, gauge, indicator, bubble)
+        data: Chart data as JSON object with keys appropriate for chart type
+        title: Chart title
+        x_label: X-axis label
+        y_label: Y-axis label
+        options: Additional styling options (width, height, template, show_legend, colors)
+        
+    Returns:
+        HTML string with embedded Plotly chart (interactive)
+    """
+    increment_request_count()
+    
+    valid_types = ["line", "bar", "scatter", "pie", "area", "histogram", "box", "heatmap", "treemap", "sunburst", "funnel", "gauge", "indicator", "bubble"]
+    if type not in valid_types:
+        return f"Error: Invalid chart type '{type}'. Valid types: {', '.join(valid_types)}"
+    
+    try:
+        from web_mcp.charts.generator import CHART_TYPES
+        chart_type: CHART_TYPES = type  # type: ignore
+        config = ChartConfig(
+            type=chart_type,
+            title=title,
+            x_label=x_label,
+            y_label=y_label,
+            data=data,
+            options=options,
+        )
+        html = create_chart(config)
+        return html
+    except ChartError as e:
+        return f"Error creating chart: {e}"
+    except Exception as e:
+        return f"Error: {e}"
 
 
 def main():
