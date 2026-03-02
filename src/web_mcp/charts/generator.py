@@ -321,7 +321,7 @@ def _ensure_chrome() -> bool:
         return False
 
 
-def create_chart_image(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> str:
+def create_chart_image_bytes(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> bytes:
     fig = _build_figure(config)
     fig.update_layout(width=width, height=height)
     
@@ -338,7 +338,11 @@ def create_chart_image(config: ChartConfig, format: str = "png", width: int = 80
         else:
             raise
     
+    return img_bytes
+
+
+def create_chart_image(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> str:
+    img_bytes = create_chart_image_bytes(config, format, width, height)
     b64 = base64.b64encode(img_bytes).decode("utf-8")
-    
     mime_type = f"image/{format}"
     return f"data:{mime_type};base64,{b64}"

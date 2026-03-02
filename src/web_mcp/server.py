@@ -20,7 +20,7 @@ from web_mcp.optimizer import optimize_content, estimate_tokens
 from web_mcp.searxng import search
 from web_mcp.logging import setup_logging, get_logger
 from web_mcp.charts import create_chart, ChartConfig, ChartError
-from web_mcp.content_store import get_content_store
+from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
 
 # Server configuration
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
@@ -110,12 +110,46 @@ async def serve_stored_content(request):
         return Response(content="Content not found or expired", status_code=404)
     
     content_type = stored.content_type
-    if content_type.startswith("text/html"):
-        return HTMLResponse(content=stored.content)
+    content = stored.content
+    if isinstance(content, bytes):
+        return Response(content=content, media_type=content_type)
+    elif content_type.startswith("text/html"):
+        return HTMLResponse(content=content)
     elif content_type.startswith("text/"):
-        return PlainTextResponse(content=stored.content, media_type=content_type)
+        return PlainTextResponse(content=content, media_type=content_type)
     else:
-        return Response(content=stored.content, media_type=content_type)
+        return Response(content=content, media_type=content_type)
+
+
+@mcp.custom_route("/i/{content_id}.png", methods=["GET"])
+async def serve_chart_image(request):
+    from starlette.responses import Response
+    
+    config = get_config()
+    
+    if config.auth_token:
+        auth_header = request.headers.get("Authorization", "")
+        if not auth_header.startswith("Bearer "):
+            return Response(content="Unauthorized", status_code=401)
+        token = auth_header[7:]
+        if token != config.auth_token:
+            return Response(content="Unauthorized", status_code=401)
+    
+    content_id = request.path_params.get("content_id", "")
+    if not content_id or not all(c.isalnum() for c in content_id):
+        return Response(content="Invalid content ID", status_code=400)
+    
+    store = get_content_store()
+    stored = store.get(content_id)
+    
+    if stored is None:
+        return Response(content="Image not found or expired", status_code=404)
+    
+    content = stored.content
+    if isinstance(content, bytes):
+        return Response(content=content, media_type="image/png")
+    else:
+        return Response(content="Invalid image data", status_code=500)
 
 
 @mcp.tool()
@@ -361,7 +395,7 @@ async def create_chart_tool(
     ),
     output: str = Field(
         default="html",
-        description="Output format: 'html' (raw HTML), 'url' (viewable link), 'image' (base64 PNG data URI)"
+        description="Output format: 'html' (raw HTML), 'url' (viewable link), 'image' (PNG URL)"
     ),
 ) -> str:
     """Create an interactive Plotly chart.
@@ -371,7 +405,7 @@ async def create_chart_tool(
     Output formats:
     - html: Returns full HTML with embedded Plotly (default)
     - url: Stores chart and returns viewable URL (requires WEB_MCP_PUBLIC_URL)
-    - image: Returns base64-encoded PNG data URI (for direct embedding in markdown)
+    - image: Stores PNG and returns viewable image URL (requires WEB_MCP_PUBLIC_URL)
     
     Chart types and required data keys:
     - line, bar, scatter, area: x (labels), y (values)
@@ -412,8 +446,11 @@ async def create_chart_tool(
     if output == "url" and not config.public_url:
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for URL output."
     
+    if output == "image" and not config.public_url:
+        return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for image output."
+    
     try:
-        from web_mcp.charts.generator import CHART_TYPES, create_chart_image
+        from web_mcp.charts.generator import CHART_TYPES, create_chart_image_bytes
         chart_type: CHART_TYPES = type  # type: ignore
         chart_config = ChartConfig(
             type=chart_type,
@@ -425,8 +462,13 @@ async def create_chart_tool(
         )
         
         if output == "image":
-            data_uri = create_chart_image(chart_config)
-            return data_uri
+            img_bytes = create_chart_image_bytes(chart_config)
+            store = get_content_store()
+            content_id = store.store(img_bytes, content_type="image/png")
+            url = f"{config.public_url}/i/{content_id}.png"
+            if config.auth_token:
+                return f"{url} (Requires Bearer token authentication)"
+            return url
         elif output == "url":
             html = create_chart(chart_config)
             store = get_content_store()
@@ -450,14 +492,22 @@ def main():
     
     tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health"
     
+    start_cleanup_task()
+    
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
         logger.info(f"Tools available: {tools}")
-        mcp.run(transport="streamable-http", mount_path="/mcp")
+        try:
+            mcp.run(transport="streamable-http", mount_path="/mcp")
+        finally:
+            stop_cleanup_task()
     elif "--sse" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
         logger.info(f"Tools available: {tools}")
-        mcp.run(transport="sse", mount_path="/sse")
+        try:
+            mcp.run(transport="sse", mount_path="/sse")
+        finally:
+            stop_cleanup_task()
     else:
         logger.info("Starting MCP server in stdio mode")
         mcp.run()
