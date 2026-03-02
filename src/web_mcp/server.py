@@ -3,6 +3,7 @@
 import os
 import sys
 import time
+from contextlib import asynccontextmanager
 from typing import Optional
 
 # Add src to path for absolute imports when running directly
@@ -74,6 +75,15 @@ def get_health_metrics() -> dict:
     }
 
 
+@asynccontextmanager
+async def lifespan(app):
+    start_cleanup_task()
+    try:
+        yield
+    finally:
+        stop_cleanup_task()
+
+
 # Create MCP server with SSE transport support
 mcp = FastMCP(
     name="web-browsing",
@@ -82,6 +92,7 @@ mcp = FastMCP(
                  "`search_web` to search the web using SearXNG.",
     host=SERVER_HOST,
     port=SERVER_PORT,
+    lifespan=lifespan,
 )
 
 
@@ -492,22 +503,14 @@ def main():
     
     tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health"
     
-    start_cleanup_task()
-    
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
         logger.info(f"Tools available: {tools}")
-        try:
-            mcp.run(transport="streamable-http", mount_path="/mcp")
-        finally:
-            stop_cleanup_task()
+        mcp.run(transport="streamable-http", mount_path="/mcp")
     elif "--sse" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
         logger.info(f"Tools available: {tools}")
-        try:
-            mcp.run(transport="sse", mount_path="/sse")
-        finally:
-            stop_cleanup_task()
+        mcp.run(transport="sse", mount_path="/sse")
     else:
         logger.info("Starting MCP server in stdio mode")
         mcp.run()
