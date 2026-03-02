@@ -10,7 +10,9 @@ from typing import Optional
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from mcp.server.fastmcp import FastMCP
-from pydantic import BaseModel, Field
+from mcp.server.auth.provider import AccessToken, TokenVerifier
+from mcp.server.auth.settings import AuthSettings
+from pydantic import BaseModel, Field, AnyHttpUrl
 
 from web_mcp.config import Config, get_config
 from web_mcp.fetcher import FetchError, fetch_url_with_fallback, fetch_url as fetch_html_httpx
@@ -22,6 +24,37 @@ from web_mcp.searxng import search
 from web_mcp.logging import setup_logging, get_logger
 from web_mcp.charts import create_chart, ChartConfig, ChartError
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
+
+
+class StaticTokenVerifier:
+    """Simple token verifier that validates against a static token."""
+    
+    def __init__(self, expected_token: str):
+        self.expected_token = expected_token
+    
+    async def verify_token(self, token: str) -> AccessToken | None:
+        if token == self.expected_token:
+            return AccessToken(
+                token=token,
+                client_id="static",
+                scopes=[]
+            )
+        return None
+
+
+def create_auth_config() -> tuple[TokenVerifier | None, AuthSettings | None]:
+    """Create auth configuration if WEB_MCP_AUTH_TOKEN is set."""
+    auth_token = os.environ.get("WEB_MCP_AUTH_TOKEN")
+    if auth_token:
+        server_url = f"http://{SERVER_HOST}:{SERVER_PORT}"
+        return (
+            StaticTokenVerifier(auth_token),
+            AuthSettings(
+                issuer_url=AnyHttpUrl(server_url),
+                resource_server_url=AnyHttpUrl(server_url),
+            )
+        )
+    return None, None
 
 # Server configuration
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
@@ -85,6 +118,9 @@ async def lifespan(app):
 
 
 # Create MCP server with SSE transport support
+_token_verifier, _auth_settings = create_auth_config()
+if _token_verifier:
+    logger.info("Authentication enabled: Bearer token required for MCP endpoints")
 mcp = FastMCP(
     name="web-browsing",
     instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
@@ -93,22 +129,14 @@ mcp = FastMCP(
     host=SERVER_HOST,
     port=SERVER_PORT,
     lifespan=lifespan,
+    token_verifier=_token_verifier,
+    auth=_auth_settings,
 )
 
 
 @mcp.custom_route("/c/{content_id}", methods=["GET"])
 async def serve_stored_content(request):
     from starlette.responses import Response, HTMLResponse, PlainTextResponse
-    
-    config = get_config()
-    
-    if config.auth_token:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return Response(content="Unauthorized", status_code=401)
-        token = auth_header[7:]
-        if token != config.auth_token:
-            return Response(content="Unauthorized", status_code=401)
     
     content_id = request.path_params.get("content_id", "")
     if not content_id or not all(c.isalnum() for c in content_id):
@@ -119,6 +147,10 @@ async def serve_stored_content(request):
     
     if stored is None:
         return Response(content="Content not found or expired", status_code=404)
+    
+    token = request.query_params.get("token", "")
+    if token != stored.token:
+        return Response(content="Unauthorized", status_code=401)
     
     content_type = stored.content_type
     content = stored.content
@@ -136,16 +168,6 @@ async def serve_stored_content(request):
 async def serve_chart_image(request):
     from starlette.responses import Response
     
-    config = get_config()
-    
-    if config.auth_token:
-        auth_header = request.headers.get("Authorization", "")
-        if not auth_header.startswith("Bearer "):
-            return Response(content="Unauthorized", status_code=401)
-        token = auth_header[7:]
-        if token != config.auth_token:
-            return Response(content="Unauthorized", status_code=401)
-    
     content_id = request.path_params.get("content_id", "")
     if content_id.endswith(".png"):
         content_id = content_id[:-4]
@@ -158,6 +180,10 @@ async def serve_chart_image(request):
     
     if stored is None:
         return Response(content="Image not found or expired", status_code=404)
+    
+    token = request.query_params.get("token", "")
+    if token != stored.token:
+        return Response(content="Unauthorized", status_code=401)
     
     content = stored.content
     if isinstance(content, bytes):
@@ -178,7 +204,6 @@ async def render_html(
     
     Content is stored for 1 hour (configurable via WEB_MCP_CONTENT_TTL) with a unique URL.
     Requires WEB_MCP_PUBLIC_URL to be configured for URL output.
-    If WEB_MCP_AUTH_TOKEN is set, the URL will require Bearer token authentication.
     
     Args:
         html: HTML content to render (can include CSS in <style> and JS in <script> tags)
@@ -195,12 +220,9 @@ async def render_html(
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL (e.g., https://mcp.example.com)"
     
     store = get_content_store()
-    content_id = store.store(html, content_type=content_type)
+    content_id, token = store.store(html, content_type=content_type)
     
-    url = f"{config.public_url}/c/{content_id}"
-    
-    if config.auth_token:
-        return f"{url} (Requires Bearer token authentication)"
+    url = f"{config.public_url}/c/{content_id}?token={token}"
     
     return url
 
@@ -478,18 +500,14 @@ async def create_chart_tool(
         if output == "image":
             img_bytes = create_chart_image_bytes(chart_config)
             store = get_content_store()
-            content_id = store.store(img_bytes, content_type="image/png")
-            url = f"{config.public_url}/i/{content_id}.png"
-            if config.auth_token:
-                return f"{url} (Requires Bearer token authentication. Embed in markdown: ![chart]({url}))"
+            content_id, token = store.store(img_bytes, content_type="image/png")
+            url = f"{config.public_url}/i/{content_id}.png?token={token}"
             return f"{url}\n\nEmbed in markdown: ![chart]({url})"
         elif output == "url":
             html = create_chart(chart_config)
             store = get_content_store()
-            content_id = store.store(html, content_type="text/html")
-            url = f"{config.public_url}/c/{content_id}"
-            if config.auth_token:
-                return f"{url} (Requires Bearer token authentication)"
+            content_id, token = store.store(html, content_type="text/html")
+            url = f"{config.public_url}/c/{content_id}?token={token}"
             return url
         else:
             html = create_chart(chart_config)

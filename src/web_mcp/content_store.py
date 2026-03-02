@@ -1,5 +1,6 @@
 import asyncio
 import hashlib
+import secrets
 import time
 from dataclasses import dataclass
 from typing import Optional, Union
@@ -13,6 +14,7 @@ class StoredContent:
     content_type: str
     created_at: float
     expires_at: float
+    token: str
 
 
 class ContentStore:
@@ -35,11 +37,15 @@ class ContentStore:
             unique_input = f"{content}:{timestamp}:{id(content)}"
         return hashlib.sha256(unique_input.encode()).hexdigest()[:16]
     
-    def store(self, content: Union[str, bytes], content_type: str = "text/html", ttl: Optional[float] = None) -> str:
+    def _generate_token(self) -> str:
+        return secrets.token_urlsafe(32)
+    
+    def store(self, content: Union[str, bytes], content_type: str = "text/html", ttl: Optional[float] = None) -> tuple[str, str]:
         if ttl is None:
             ttl = self.default_ttl
         
         content_id = self._generate_id(content)
+        token = self._generate_token()
         now = time.time()
         
         stored = StoredContent(
@@ -47,6 +53,7 @@ class ContentStore:
             content_type=content_type,
             created_at=now,
             expires_at=now + ttl,
+            token=token,
         )
         
         if len(self._store) >= self.max_size:
@@ -57,7 +64,7 @@ class ContentStore:
         self._store[content_id] = stored
         self._store.move_to_end(content_id)
         
-        return content_id
+        return content_id, token
     
     def get(self, content_id: str) -> Optional[StoredContent]:
         if content_id not in self._store:
