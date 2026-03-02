@@ -132,7 +132,7 @@ async def serve_stored_content(request):
         return Response(content=content, media_type=content_type)
 
 
-@mcp.custom_route("/i/{content_id}.png", methods=["GET"])
+@mcp.custom_route("/i/{content_id}", methods=["GET"])
 async def serve_chart_image(request):
     from starlette.responses import Response
     
@@ -147,6 +147,9 @@ async def serve_chart_image(request):
             return Response(content="Unauthorized", status_code=401)
     
     content_id = request.path_params.get("content_id", "")
+    if content_id.endswith(".png"):
+        content_id = content_id[:-4]
+    
     if not content_id or not all(c.isalnum() for c in content_id):
         return Response(content="Invalid content ID", status_code=400)
     
@@ -158,7 +161,7 @@ async def serve_chart_image(request):
     
     content = stored.content
     if isinstance(content, bytes):
-        return Response(content=content, media_type="image/png")
+        return Response(content=content, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
     else:
         return Response(content="Invalid image data", status_code=500)
 
@@ -478,8 +481,8 @@ async def create_chart_tool(
             content_id = store.store(img_bytes, content_type="image/png")
             url = f"{config.public_url}/i/{content_id}.png"
             if config.auth_token:
-                return f"{url} (Requires Bearer token authentication)"
-            return url
+                return f"{url} (Requires Bearer token authentication. Embed in markdown: ![chart]({url}))"
+            return f"{url}\n\nEmbed in markdown: ![chart]({url})"
         elif output == "url":
             html = create_chart(chart_config)
             store = get_content_store()
