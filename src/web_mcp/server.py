@@ -545,7 +545,7 @@ async def run_javascript(
     Example:
         code: "Math.pow(2, 10)"  -> returns 1024
         code: "[1,2,3].map(x => x * 2)"  -> returns [2, 4, 6]
-        code: "await fetch('https://api.ipify.org?format=json').then(r => r.json())"  -> fetches data
+        code: "(await fetch('https://api.ipify.org?format=json')).body"  -> fetches data
     
     Args:
         code: JavaScript code to execute (expression or statements)
@@ -557,6 +557,7 @@ async def run_javascript(
     """
     import asyncio
     import httpx
+    import ssl
     
     increment_request_count()
     
@@ -570,8 +571,8 @@ async def run_javascript(
     except ImportError:
         return "Error: mini-racer not installed. Run: pip install mini-racer"
     
-    async def js_fetch(url: str, options: dict = None) -> dict:
-        """HTTP fetch implementation for JS context."""
+    async def py_fetch(url: str, options: dict = None) -> str:
+        """HTTP fetch implementation - returns JSON string."""
         options = options or {}
         
         method = options.get("method", "GET")
@@ -580,7 +581,12 @@ async def run_javascript(
         timeout = options.get("timeout", 10000) / 1000.0
         
         try:
-            async with httpx.AsyncClient(timeout=timeout) as client:
+            # Create SSL context that allows all certs for flexibility
+            ssl_ctx = ssl.create_default_context()
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+            
+            async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
                 response = await client.request(
                     method=method,
                     url=url,
@@ -589,22 +595,20 @@ async def run_javascript(
                     follow_redirects=True,
                 )
             
-            return {
+            result = {
                 "status": response.status_code,
                 "statusText": response.reason_phrase,
                 "headers": dict(response.headers),
                 "body": response.text,
             }
+            return json.dumps(result)
         except httpx.TimeoutException:
-            return {"error": f"Request timed out after {timeout}s", "status": 0}
+            return json.dumps({"error": f"Request timed out after {timeout}s", "status": 0})
         except Exception as e:
-            return {"error": str(e), "status": 0}
+            return json.dumps({"error": str(e), "status": 0})
     
     try:
         mr = MiniRacer()
-        
-        # Register fetch function
-        mr.wrap_py_function("fetch", js_fetch)
         
         # Build the full code with context variables injected
         context_lines = []
@@ -619,48 +623,69 @@ async def run_javascript(
         code_trimmed = code.strip()
         is_statement = code_trimmed.endswith((";", "}"))
         
-        # Build final code
+        # Build final code - always wrap in JSON.stringify for consistent return type
         if is_statement:
-            # For statements, wrap in IIFE to capture last expression
             full_code = f"(async () => {{\n{context_code}\n{code_trimmed}\n}})()"
         else:
-            # For expressions, just wrap in async IIFE
             if context_code:
-                full_code = f"(async () => {{\n{context_code}\nreturn ({code_trimmed});\n}})()"
+                full_code = f"(async () => {{\n{context_code}\nreturn JSON.stringify({code_trimmed});\n}})()"
             else:
-                full_code = f"(async () => {{ return ({code_trimmed}); }})()"
+                full_code = f"(async () => {{ return JSON.stringify({code_trimmed}); }})()"
         
-        # Execute with timeout
+        # Execute with timeout - keep fetch context manager open during execution
         timeout_sec = timeout_ms / 1000.0
-        try:
-            result = await asyncio.wait_for(
-                mr.eval_cancelable(full_code),
-                timeout=timeout_sec
-            )
-        except asyncio.TimeoutError:
-            return f"Error: Execution timed out after {timeout_ms}ms"
         
-        # Convert result to JSON string
+        async with mr._ctx.wrap_py_function_as_js_function(py_fetch) as js_fetch:
+            global_obj = await mr._ctx.eval_cancelable("globalThis")
+            global_obj["__fetch_raw"] = js_fetch
+            
+            await mr._ctx.eval_cancelable("""
+                async function fetch(url, options) {
+                    const s = await __fetch_raw(url, options || {});
+                    return JSON.parse(s);
+                }
+            """)
+            
+            try:
+                result = await asyncio.wait_for(
+                    mr.eval_cancelable(full_code),
+                    timeout=timeout_sec
+                )
+            except asyncio.TimeoutError:
+                return f"Error: Execution timed out after {timeout_ms}ms"
+            
+            # Await promise INSIDE the context manager (required for fetch to work)
+            if hasattr(result, '__class__') and 'Promise' in result.__class__.__name__:
+                try:
+                    result = await asyncio.wait_for(
+                        mr._ctx.await_promise(result),
+                        timeout=timeout_sec
+                    )
+                except asyncio.TimeoutError:
+                    return f"Error: Execution timed out after {timeout_ms}ms"
+        
+        # Result should be a JSON string from JSON.stringify
         if result is None:
             return "null"
         
-        # Handle different result types
-        if isinstance(result, (str, int, float, bool, list, dict)):
-            return json.dumps(result, ensure_ascii=False, indent=2)
-        else:
-            # For JS objects, use JSON.stringify in the engine
+        # If result is a string, it's JSON from JSON.stringify
+        if isinstance(result, str):
             try:
-                json_str = await asyncio.wait_for(
-                    mr.eval_cancelable(f"JSON.stringify({json.dumps(str(result))})"),
-                    timeout=1
-                )
-                return json_str
-            except:
-                return str(result)
+                parsed = json.loads(result)
+                return json.dumps(parsed, ensure_ascii=False, indent=2)
+            except json.JSONDecodeError:
+                return result
+        
+        # Fallback for other types
+        if isinstance(result, (int, float, bool)):
+            return json.dumps(result)
+        
+        return str(result)
             
     except Exception as e:
         error_msg = str(e)
         return f"Error: {error_msg}"
+
 
 
 
