@@ -1,5 +1,6 @@
 """Web Browsing MCP Server - Browse the web with context-aware content extraction."""
 
+import json
 import os
 import sys
 import time
@@ -518,11 +519,100 @@ async def create_chart_tool(
         return f"Error: {e}"
 
 
+@mcp.tool()
+async def run_javascript(
+    code: str = Field(description="JavaScript code to execute"),
+    timeout_ms: int = Field(
+        default=5000,
+        description="Execution timeout in milliseconds (default: 5000)"
+    ),
+    context: dict = Field(
+        default_factory=dict,
+        description="Optional variables to inject into JS context as JSON-serializable dict"
+    ),
+) -> str:
+    """Execute JavaScript code in a sandboxed V8 environment and return output.
+    
+    Runs JS in an isolated context with no filesystem or network access.
+    Supports ES2023 features including async/await, Promises, and Intl API.
+    
+    The code should return a value (the last expression or via explicit return).
+    Return values must be JSON-serializable (strings, numbers, bools, arrays, objects).
+    
+    Example:
+        code: "Math.pow(2, 10)"  -> returns 1024
+        code: "[1,2,3].map(x => x * 2)"  -> returns [2, 4, 6]
+        code: "async function f() { return 42; } f()"  -> returns 42 (promise support)
+    
+    Args:
+        code: JavaScript code to execute
+        timeout_ms: Maximum execution time in milliseconds (default 5000)
+        context: Optional dict of variables to inject into the JS context
+        
+    Returns:
+        JSON representation of the return value, or error message if execution fails
+    """
+    import asyncio
+    
+    increment_request_count()
+    
+    try:
+        from py_mini_racer import MiniRacer
+    except ImportError:
+        return "Error: mini-racer not installed. Run: pip install mini-racer"
+    
+    try:
+        mr = MiniRacer()
+        
+        # Build the full code with context variables injected
+        context_lines = []
+        for key, value in context.items():
+            if not key.isidentifier():
+                return f"Error: Invalid context variable name '{key}'. Must be a valid JS identifier."
+            context_lines.append(f"const {key} = {json.dumps(value)};")
+        
+        context_code = "\n".join(context_lines)
+        
+        # Wrap expression in parentheses if it doesn't end with statement terminators
+        wrapped_code = f"({code})" if not code.strip().endswith((";", "}")) else code
+        
+        # Build final code that JSON-serializes the result
+        if context_code:
+            full_code = f"{context_code}\nJSON.stringify({wrapped_code})"
+        else:
+            full_code = f"JSON.stringify({wrapped_code})"
+        
+        # Execute with timeout
+        timeout_sec = timeout_ms / 1000.0
+        try:
+            result_str = await asyncio.wait_for(
+                mr.eval_cancelable(full_code),
+                timeout=timeout_sec
+            )
+        except asyncio.TimeoutError:
+            return f"Error: Execution timed out after {timeout_ms}ms"
+        
+        # Parse and re-format the JSON for pretty output
+        if result_str is None:
+            return "null"
+        
+        try:
+            result = json.loads(result_str)
+            return json.dumps(result, ensure_ascii=False, indent=2)
+        except json.JSONDecodeError:
+            # If not valid JSON, return as-is (shouldn't happen with JSON.stringify)
+            return result_str
+            
+    except Exception as e:
+        error_msg = str(e)
+        return f"Error: {error_msg}"
+
+
 def main():
     """Run the MCP server."""
     import sys
     
-    tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health"
+    tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health, run_javascript"
     
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
