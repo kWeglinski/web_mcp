@@ -67,4 +67,3 @@ docker-compose.yml
 *.log
 *.tmp
 .python-version
-uv.lock
