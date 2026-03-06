@@ -1,8 +1,7 @@
 """Unit tests for retry utilities."""
 
-import asyncio
 import time
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -129,9 +128,7 @@ class TestWithRetryAsync:
         """Test that only specified exceptions trigger retries."""
         call_count = 0
 
-        @with_retry(
-            max_attempts=3, base_delay=0.01, retryable_exceptions=(RetryableError,)
-        )
+        @with_retry(max_attempts=3, base_delay=0.01, retryable_exceptions=(RetryableError,))
         async def func_with_retryable_error():
             nonlocal call_count
             call_count += 1
@@ -168,9 +165,7 @@ class TestWithRetryAsync:
         """Test that exceptions not in retryable_exceptions are not retried."""
         call_count = 0
 
-        @with_retry(
-            max_attempts=3, base_delay=0.01, retryable_exceptions=(ValueError,)
-        )
+        @with_retry(max_attempts=3, base_delay=0.01, retryable_exceptions=(ValueError,))
         async def func_with_type_error():
             nonlocal call_count
             call_count += 1
@@ -342,9 +337,7 @@ class TestWithRetrySync:
         """Test that only specified exceptions trigger retries."""
         call_count = 0
 
-        @with_retry_sync(
-            max_attempts=3, base_delay=0.01, retryable_exceptions=(RetryableError,)
-        )
+        @with_retry_sync(max_attempts=3, base_delay=0.01, retryable_exceptions=(RetryableError,))
         def func_with_retryable_error():
             nonlocal call_count
             call_count += 1
@@ -379,9 +372,7 @@ class TestWithRetrySync:
         """Test that exceptions not in retryable_exceptions are not retried."""
         call_count = 0
 
-        @with_retry_sync(
-            max_attempts=3, base_delay=0.01, retryable_exceptions=(ValueError,)
-        )
+        @with_retry_sync(max_attempts=3, base_delay=0.01, retryable_exceptions=(ValueError,))
         def func_with_type_error():
             nonlocal call_count
             call_count += 1

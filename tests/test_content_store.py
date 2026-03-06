@@ -336,7 +336,10 @@ class TestContentStoreAsync:
 
         await asyncio.sleep(0.3)
 
-        assert store.get("content1") is None or len([k for k, v in store._store.items() if v.content == "content1"]) == 0
+        assert (
+            store.get("content1") is None
+            or len([k for k, v in store._store.items() if v.content == "content1"]) == 0
+        )
 
         store.stop_cleanup_task()
 
@@ -450,7 +453,7 @@ class TestResetContentStore:
 
             try:
                 await asyncio.wait_for(task, timeout=0.1)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
             assert task.done()
 
@@ -492,7 +495,7 @@ class TestGlobalCleanupFunctions:
 
             try:
                 await asyncio.wait_for(task, timeout=0.1)
-            except (asyncio.CancelledError, asyncio.TimeoutError):
+            except (TimeoutError, asyncio.CancelledError):
                 pass
             assert task.done()
 

@@ -281,9 +281,13 @@ class TestGenerateSubQueries:
         assert "Second query" in result
 
     @pytest.mark.asyncio
-    async def test_generate_sub_queries_strips_numbered_prefixes(self, mock_client, mock_configured):
+    async def test_generate_sub_queries_strips_numbered_prefixes(
+        self, mock_client, mock_configured
+    ):
         """Test that numbered prefixes are stripped."""
-        mock_client.chat = AsyncMock(return_value="1. First\n2. Second\n3. Third\n4. Fourth\n5. Fifth")
+        mock_client.chat = AsyncMock(
+            return_value="1. First\n2. Second\n3. Third\n4. Fourth\n5. Fifth"
+        )
 
         result = await generate_sub_queries(mock_client, "test query")
 
@@ -451,7 +455,9 @@ class TestParallelSearchQueries:
         mock_client.chat = AsyncMock(return_value="1. sub query")
         mock_search = AsyncMock(return_value=[{"id": 1}, {"id": 2}])
 
-        result = await parallel_search_queries(mock_client, "test query", mock_search, max_concurrent=2)
+        result = await parallel_search_queries(
+            mock_client, "test query", mock_search, max_concurrent=2
+        )
 
         assert all(isinstance(r, dict) for r in result)
 
@@ -461,7 +467,9 @@ class TestParallelSearchQueries:
         mock_client.chat = AsyncMock(return_value="1. sub query")
         mock_search = AsyncMock(return_value={"single": "result"})
 
-        result = await parallel_search_queries(mock_client, "test query", mock_search, max_concurrent=1)
+        result = await parallel_search_queries(
+            mock_client, "test query", mock_search, max_concurrent=1
+        )
 
         assert {"single": "result"} in result
 

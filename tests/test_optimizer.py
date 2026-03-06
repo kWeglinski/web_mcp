@@ -316,7 +316,10 @@ class TestOptimizeContent:
         mock_config.truncation_strategy = "simple"
         result = optimize_content(text, 10, mock_config)
         assert "truncated_tokens" in result["optimization_info"]
-        assert result["optimization_info"]["truncated_tokens"] < result["optimization_info"]["original_tokens"]
+        assert (
+            result["optimization_info"]["truncated_tokens"]
+            < result["optimization_info"]["original_tokens"]
+        )
 
     def test_optimize_content_no_truncated_tokens_when_not_truncated(self, mock_config):
         """Test that truncated_tokens is not in result when not truncated."""

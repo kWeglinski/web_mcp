@@ -277,10 +277,7 @@ class TestSelectDiverseChunksV2:
     def test_diversity_calculation_formula(self):
         """Test the diversity bonus calculation formula."""
         max_per_source = 3
-        chunks = [
-            create_chunk_with_score(f"text{i}", "https://example.com", 1.0)
-            for i in range(3)
-        ]
+        chunks = [create_chunk_with_score(f"text{i}", "https://example.com", 1.0) for i in range(3)]
         result = select_diverse_chunks_v2(chunks, max_per_source=max_per_source)
         expected_bonuses = [
             1.0 - (0 / (max_per_source + 1)),
@@ -361,16 +358,13 @@ class TestSelectDiverseChunksRerank:
             for i in range(25)
         ]
         result = select_diverse_chunks_rerank(chunks, max_per_source=2, total_chunks=10)
-        urls = set(chunk.source_url for chunk, _ in result)
+        urls = {chunk.source_url for chunk, _ in result}
         assert len(urls) == 5
 
     def test_combined_score_calculation(self):
         """Test the combined score calculation."""
         max_per_source = 3
-        chunks = [
-            create_chunk_with_score(f"text{i}", "https://example.com", 1.0)
-            for i in range(3)
-        ]
+        chunks = [create_chunk_with_score(f"text{i}", "https://example.com", 1.0) for i in range(3)]
         result = select_diverse_chunks_rerank(chunks, max_per_source=max_per_source)
         expected_scores = [
             1.0 * (1.0 - 0 / (max_per_source + 1)),
@@ -595,8 +589,7 @@ class TestEdgeCases:
     def test_select_diverse_chunks_zero_scores(self):
         """Test selection with zero scores."""
         chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.0)
-            for i in range(5)
+            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.0) for i in range(5)
         ]
         result = select_diverse_chunks(chunks, total_chunks=3)
         assert len(result) == 3
@@ -604,8 +597,7 @@ class TestEdgeCases:
     def test_select_diverse_chunks_negative_scores(self):
         """Test selection with negative scores."""
         chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i}.com", -0.5)
-            for i in range(5)
+            create_chunk_with_score(f"text{i}", f"https://example{i}.com", -0.5) for i in range(5)
         ]
         result = select_diverse_chunks(chunks, total_chunks=3)
         assert len(result) == 3
@@ -653,8 +645,7 @@ class TestEdgeCases:
     def test_very_high_scores(self):
         """Test with very high relevance scores."""
         chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 1000.0)
-            for i in range(5)
+            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 1000.0) for i in range(5)
         ]
         result = select_diverse_chunks(chunks, total_chunks=3)
         assert len(result) == 3
