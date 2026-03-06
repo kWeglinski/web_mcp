@@ -1,23 +1,22 @@
 """Trafilatura-based content extractor."""
 
 import trafilatura
-from typing import Optional
 
 from .base import ContentExtractor, ExtractedContent
 
 
 class TrafilaturaExtractor(ContentExtractor):
     """Content extractor using Trafilatura library."""
-    
+
     name = "trafilatura"
-    
+
     async def extract(self, html: str, url: str) -> ExtractedContent:
         """Extract content using Trafilatura.
-        
+
         Args:
             html: Raw HTML content
             url: Source URL
-            
+
         Returns:
             ExtractedContent with title, author, date, language, text, and metadata
         """
@@ -28,7 +27,7 @@ class TrafilaturaExtractor(ContentExtractor):
             include_links=False,
             output_format="json",
         )
-        
+
         if not result:
             # Fallback to basic extraction
             return ExtractedContent(
@@ -40,11 +39,12 @@ class TrafilaturaExtractor(ContentExtractor):
                 url=url,
                 metadata={},
             )
-        
+
         # Parse the JSON result
         import json
+
         data = json.loads(result) if isinstance(result, str) else result
-        
+
         return ExtractedContent(
             title=data.get("title"),
             author=data.get("author"),

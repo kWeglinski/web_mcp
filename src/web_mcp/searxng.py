@@ -3,12 +3,11 @@
 import os
 import re
 from datetime import datetime
-from typing import Optional
 
 import httpx
 
 
-def remove_html_tags(text: Optional[str]) -> str:
+def remove_html_tags(text: str | None) -> str:
     """Strip HTML tags and normalize whitespace."""
     if not text:
         return ""
@@ -17,7 +16,7 @@ def remove_html_tags(text: Optional[str]) -> str:
     return text
 
 
-def parse_date(iso_string: Optional[str]) -> str:
+def parse_date(iso_string: str | None) -> str:
     """Convert ISO date to YYYY-MM-DD format."""
     if not iso_string:
         return "Unknown"
@@ -50,9 +49,7 @@ def parse_searxng_to_markdown(
     if not raw_results:
         return "*No search results found*"
 
-    max_score = max(
-        [r.get("score", 0) or r.get("bm25_score", 0) for r in raw_results] or [1]
-    )
+    max_score = max([r.get("score", 0) or r.get("bm25_score", 0) for r in raw_results] or [1])
     normalized_results = []
 
     for result in raw_results:
@@ -83,7 +80,9 @@ def parse_searxng_to_markdown(
 
     normalized_results.sort(key=lambda x: x["score"], reverse=True)
 
-    output = f'# Search Results for: "{query}"\n**Total Results:** {len(normalized_results)}\n\n---\n\n'
+    output = (
+        f'# Search Results for: "{query}"\n**Total Results:** {len(normalized_results)}\n\n---\n\n'
+    )
 
     for i, result in enumerate(normalized_results[:max_results], 1):
         output += f"### Result #{i} (Score: {result['score']:.2f})\n"
@@ -99,15 +98,15 @@ def parse_searxng_to_markdown(
 
 class SearXNGError(Exception):
     """Custom exception for SearXNG search errors."""
-    
+
     def __init__(self, message: str) -> None:
         super().__init__(message)
         self.message = message
 
 
-def get_searxng_url() -> Optional[str]:
+def get_searxng_url() -> str | None:
     """Get the SearXNG URL from environment variable.
-    
+
     Returns:
         The SearXNG URL if configured, None otherwise.
     """
@@ -116,33 +115,33 @@ def get_searxng_url() -> Optional[str]:
 
 async def search(query: str, max_results: int = 10) -> list[dict]:
     """Search using SearXNG.
-    
+
     Args:
         query: The search query string
         max_results: Maximum number of results to return (default: 10)
-        
+
     Returns:
         List of search result dictionaries with title, url, and snippet
-        
+
     Raises:
         SearXNGError: If the search fails or SearXNG is not configured
     """
     searxng_url = get_searxng_url()
-    
+
     if not searxng_url:
         raise SearXNGError(
             "SearXNG is not configured. Set WEB_MCP_SEARXNG_URL environment variable."
         )
-    
+
     # Clean up the URL - ensure it doesn't have a trailing slash
     searxng_url = searxng_url.rstrip("/")
-    
+
     # Build the search URL
     # SearXNG API endpoint is typically /search
     search_url = f"{searxng_url}/search"
-    
+
     timeout = 30
-    
+
     try:
         async with httpx.AsyncClient() as client:
             params = {
@@ -153,12 +152,12 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
             }
             response = await client.get(search_url, params=params, timeout=timeout)
             response.raise_for_status()
-            
+
             data = response.json()
-            
+
             # SearXNG returns results in the 'results' key
             results = data.get("results", [])
-            
+
             # Parse and format results
             formatted_results = []
             for result in results:
@@ -167,17 +166,17 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
                     "url": result.get("url", ""),
                     "snippet": result.get("content", result.get("snippet", "")),
                 }
-                
+
                 # Add optional fields if available
                 if "publishedDate" in result:
                     formatted_result["published_date"] = result["publishedDate"]
                 if "score" in result:
                     formatted_result["score"] = result["score"]
-                
+
                 formatted_results.append(formatted_result)
-            
+
             return formatted_results
-            
+
     except httpx.TimeoutException as e:
         raise SearXNGError(f"Request timed out: {e}")
     except httpx.HTTPStatusError as e:

@@ -1,10 +1,18 @@
-# Use Python 3.12 slim image
+# Multi-platform Dockerfile for web-mcp
+# Supports: linux/amd64, linux/arm64
+# Build with: docker buildx build --platform linux/amd64,linux/arm64 -t web-mcp .
+
+# Use Python 3.12 slim image (supports amd64 and arm64)
 FROM python:3.12-slim
+
+# Platform argument for multi-platform builds (automatically set by buildx)
+ARG TARGETPLATFORM
+ARG TARGETARCH
 
 # Set working directory
 WORKDIR /app
 
-# Install uv (Python package manager)
+# Install uv (Python package manager - supports both platforms)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Copy all project files
@@ -15,6 +23,7 @@ COPY src/ ./src/
 RUN uv sync --frozen
 
 # Install Playwright system dependencies and browser
+# Playwright auto-detects the target platform and installs correct chromium binary
 # Must be done as root before creating user
 RUN uv run playwright install-deps chromium && \
     uv run playwright install chromium

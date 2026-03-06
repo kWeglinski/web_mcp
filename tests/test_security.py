@@ -3,15 +3,15 @@
 import pytest
 
 from web_mcp.security import (
-    validate_url,
-    validate_url_ip,
-    validate_url_no_credentials,
-    validate_url_with_whitelist,
-    validate_url_with_blacklist,
-    sanitize_input,
     RateLimiter,
     get_rate_limiter,
     reset_rate_limiter,
+    sanitize_input,
+    validate_url,
+    validate_url_ip,
+    validate_url_no_credentials,
+    validate_url_with_blacklist,
+    validate_url_with_whitelist,
 )
 
 
@@ -149,14 +149,14 @@ class TestRateLimiter:
         """Test requests over limit are blocked."""
         for _ in range(5):
             limiter.is_allowed()
-        
+
         # 6th request should be blocked
         assert limiter.is_allowed() is False
 
     def test_remaining_requests(self, limiter):
         """Test remaining requests count."""
         assert limiter.get_remaining_requests() == 5
-        
+
         limiter.is_allowed()
         assert limiter.get_remaining_requests() == 4
 
@@ -164,9 +164,9 @@ class TestRateLimiter:
         """Test rate limiter reset."""
         for _ in range(5):
             limiter.is_allowed()
-        
+
         assert limiter.get_remaining_requests() == 0
-        
+
         limiter.reset()
         assert limiter.get_remaining_requests() == 5
 
@@ -185,22 +185,23 @@ class TestGetRateLimiter:
         """Test that get_rate_limiter returns a singleton."""
         limiter1 = get_rate_limiter()
         limiter2 = get_rate_limiter()
-        
+
         assert limiter1 is limiter2
 
     def test_custom_config(self, clean_state):
         """Test with custom environment variables."""
         import os
+
         from web_mcp.security import reset_rate_limiter
-        
+
         # Set custom config
         os.environ["WEB_MCP_RATE_LIMIT_REQUESTS"] = "20"
         os.environ["WEB_MCP_RATE_LIMIT_WINDOW"] = "120.0"
-        
+
         # Reset and get limiter
         reset_rate_limiter()
         limiter = get_rate_limiter()
-        
+
         assert limiter.max_requests == 20
         assert limiter.window_seconds == 120.0
 
@@ -303,9 +304,9 @@ class TestRedirectValidation:
     async def test_redirect_to_whitelisted_domain(self):
         """Test that redirects to whitelisted domains are allowed."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=5)
-        
+
         # Whitelisted domain should pass
         result = await validator.should_follow_redirect("https://wikipedia.org/wiki/Python")
         assert result is True
@@ -314,9 +315,9 @@ class TestRedirectValidation:
     async def test_redirect_to_non_whitelisted_domain(self):
         """Test that redirects to non-whitelisted domains are blocked."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=5)
-        
+
         # Non-whitelisted domain should be blocked
         result = await validator.should_follow_redirect("https://malicious.com")
         assert result is False
@@ -325,9 +326,9 @@ class TestRedirectValidation:
     async def test_redirect_to_private_ip(self):
         """Test that redirects to private IPs are blocked."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=5)
-        
+
         # Private IP should be blocked
         result = await validator.should_follow_redirect("http://127.0.0.1")
         assert result is False
@@ -336,9 +337,9 @@ class TestRedirectValidation:
     async def test_redirect_to_loopback_hostname(self):
         """Test that redirects to localhost are blocked."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=5)
-        
+
         # localhost should be blocked
         result = await validator.should_follow_redirect("http://localhost")
         assert result is False
@@ -347,13 +348,13 @@ class TestRedirectValidation:
     async def test_redirect_exceeds_limit(self):
         """Test that redirects exceeding the limit are blocked."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=2)
-        
+
         # First two redirects should pass (assuming other checks pass)
         await validator.should_follow_redirect("https://wikipedia.org")
         await validator.should_follow_redirect("https://github.com")
-        
+
         # Third redirect should be blocked due to limit
         result = await validator.should_follow_redirect("https://stackoverflow.com")
         assert result is False
@@ -362,9 +363,9 @@ class TestRedirectValidation:
     async def test_redirect_with_credentials_blocked(self):
         """Test that redirects with credentials are blocked."""
         from web_mcp.fetcher import RedirectValidator
-        
+
         validator = RedirectValidator(max_redirects=5)
-        
+
         # URL with credentials should be blocked
         result = await validator.should_follow_redirect("https://wikipedia.org@evil.com")
         assert result is False

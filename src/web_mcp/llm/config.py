@@ -2,28 +2,19 @@
 
 import os
 from dataclasses import dataclass, field
-from typing import Optional
 
 
 @dataclass
 class LLMConfig:
     """Configuration for LLM operations."""
-    
+
     api_url: str = field(
-        default_factory=lambda: os.environ.get(
-            "WEB_MCP_LLM_API_URL", "https://api.openai.com/v1"
-        )
+        default_factory=lambda: os.environ.get("WEB_MCP_LLM_API_URL", "https://api.openai.com/v1")
     )
-    api_key: Optional[str] = field(
-        default_factory=lambda: os.environ.get("WEB_MCP_LLM_API_KEY")
-    )
-    model: str = field(
-        default_factory=lambda: os.environ.get("WEB_MCP_LLM_MODEL", "gpt-4o")
-    )
+    api_key: str | None = field(default_factory=lambda: os.environ.get("WEB_MCP_LLM_API_KEY"))
+    model: str = field(default_factory=lambda: os.environ.get("WEB_MCP_LLM_MODEL", "gpt-4o"))
     embedding_model: str = field(
-        default_factory=lambda: os.environ.get(
-            "WEB_MCP_LLM_EMBED_MODEL", "text-embedding-3-small"
-        )
+        default_factory=lambda: os.environ.get("WEB_MCP_LLM_EMBED_MODEL", "text-embedding-3-small")
     )
     max_tokens: int = field(
         default_factory=lambda: int(os.environ.get("WEB_MCP_LLM_MAX_TOKENS", "4096"))
@@ -44,7 +35,7 @@ class LLMConfig:
 @dataclass
 class ResearchConfig:
     """Configuration for the research pipeline."""
-    
+
     max_sources: int = field(
         default_factory=lambda: int(os.environ.get("WEB_MCP_RESEARCH_MAX_SOURCES", "5"))
     )
@@ -68,8 +59,8 @@ class ResearchConfig:
     )
 
 
-_llm_config: Optional[LLMConfig] = None
-_research_config: Optional[ResearchConfig] = None
+_llm_config: LLMConfig | None = None
+_research_config: ResearchConfig | None = None
 
 
 def get_llm_config() -> LLMConfig:

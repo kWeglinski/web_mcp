@@ -1,0 +1,297 @@
+# Web MCP Docker Compose Example
+# This file demonstrates a complete deployment setup with Web MCP and SearXNG
+# Copy this file and customize as needed
+
+version: '3.8'
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+# Custom network for service communication
+# Services can communicate using their service names as hostnames
+networks:
+  web-mcp-network:
+    driver: bridge
+    name: web-mcp-network
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+# Persistent storage for configuration and cache data
+volumes:
+  # SearXNG configuration and data
+  searxng-data:
+    name: searxng-data
+  # Web MCP cache (optional, for persistent caching)
+  web-mcp-cache:
+    name: web-mcp-cache
+
+# =============================================================================
+# SERVICES
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # Web MCP Server
+  # ---------------------------------------------------------------------------
+  # The main MCP server that provides web browsing and search capabilities
+  # Communicates with SearXNG for web search functionality
+  web-mcp:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    image: kweg/mcp-basics:latest
+    container_name: web-mcp-server
+    hostname: web-mcp
+    
+    # Port mappings
+    # - 8000: MCP HTTP server endpoint
+    ports:
+      - "8000:8000"
+    
+    # Environment variables for Web MCP configuration
+    # See .env.example for all available options
+    environment:
+      # Server configuration
+      - WEB_MCP_SERVER_HOST=0.0.0.0
+      - WEB_MCP_SERVER_PORT=8000
+      
+      # SearXNG connection (uses docker service name as hostname)
+      - WEB_MCP_SEARXNG_URL=http://searxng:8080
+      
+      # Context and content limits
+      - WEB_MCP_CONTEXT_LIMIT=120000
+      - WEB_MCP_REQUEST_TIMEOUT=30
+      - WEB_MCP_MAX_CONTENT_LENGTH=10485760
+      
+      # Content extraction settings
+      - WEB_MCP_DEFAULT_EXTRACTOR=trafilatura
+      - WEB_MCP_INCLUDE_METADATA=true
+      - WEB_MCP_INCLUDE_LINKS=false
+      - WEB_MCP_INCLUDE_COMMENTS=false
+      
+      # Token estimation and truncation
+      - WEB_MCP_ENABLE_TOKEN_ESTIMATION=true
+      - WEB_MCP_TRUNCATION_STRATEGY=smart
+      
+      # Playwright settings (for JavaScript-heavy pages)
+      - WEB_MCP_PLAYWRIGHT_ENABLED=true
+      - WEB_MCP_PLAYWRIGHT_TIMEOUT=30000
+      - WEB_MCP_PLAYWRIGHT_FALLBACK_THRESHOLD=500
+      
+      # Cache settings
+      - WEB_MCP_CACHE_TTL=3600
+      - WEB_MCP_CONTENT_TTL=3600
+      
+      # JavaScript execution security limits
+      - WEB_MCP_JS_FETCH_MAX_RESPONSE_SIZE=5242880
+      - WEB_MCP_JS_FETCH_MAX_REQUESTS=10
+      - WEB_MCP_JS_FETCH_MAX_TOTAL_BYTES=10485760
+      - WEB_MCP_JS_FETCH_TIMEOUT=10000
+      - WEB_MCP_JS_EXECUTION_TIMEOUT=30000
+      - WEB_MCP_JS_FETCH_VERIFY_SSL=true
+      
+      # Optional: Authentication token for API access
+      # - WEB_MCP_AUTH_TOKEN=your-secure-token-here
+      
+      # Optional: Public URL for generated links
+      # - WEB_MCP_PUBLIC_URL=https://your-domain.com
+      
+      # Custom User-Agent header
+      - WEB_MCP_USER_AGENT=WebMCP/1.0 (+https://github.com/kweg/mcp-basics)
+    
+    # Volume mounts for persistent data
+    volumes:
+      # Optional: Persist cache across restarts
+      - web-mcp-cache:/app/.cache
+      
+      # Optional: Mount custom configuration
+      # - ./config:/app/config:ro
+    
+    # Connect to custom network
+    networks:
+      - web-mcp-network
+    
+    # Restart policy: always restart unless manually stopped
+    restart: unless-stopped
+    
+    # Health check configuration
+    # Verifies the MCP server is responding
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/mcp"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    
+    # Resource limits (optional, uncomment to enable)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '2'
+    #       memory: 2G
+    #     reservations:
+    #       cpus: '0.5'
+    #       memory: 512M
+    
+    # Dependency on SearXNG (starts SearXNG first)
+    depends_on:
+      searxng:
+        condition: service_healthy
+
+  # ---------------------------------------------------------------------------
+  # SearXNG - Privacy-respecting metasearch engine
+  # ---------------------------------------------------------------------------
+  # Provides web search capabilities to Web MCP
+  # Aggregates results from multiple search engines
+  searxng:
+    image: searxng/searxng:latest
+    container_name: searxng
+    hostname: searxng
+    
+    # Port mappings
+    # - 8080: SearXNG web interface (optional, can be disabled for internal-only access)
+    # Comment out to prevent external access
+    ports:
+      - "8080:8080"
+    
+    # Volume mounts for SearXNG
+    volumes:
+      # Persistent data storage
+      - searxng-data:/etc/searxng:rw
+      
+      # Optional: Custom settings file
+      # - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+    
+    # Environment variables for SearXNG
+    environment:
+      # Base URL for generating proper links
+      - SEARXNG_BASE_URL=http://localhost:8080/
+      
+      # Instance name (shown in UI)
+      - SEARXNG_INSTANCE_NAME=Web MCP Search
+      
+      # Secret key for session encryption (generate a unique one!)
+      # CHANGE THIS IN PRODUCTION!
+      - SEARXNG_SECRET=changeme-to-a-random-secret-key
+      
+      # Logging level
+      - SEARXNG_LOG_LEVEL=WARNING
+      
+      # Enable limiter (rate limiting)
+      - SEARXNG_LIMITER=true
+      
+      # Image proxy for privacy
+      - SEARXNG_IMAGE_PROXY=true
+      
+      # HTTP compression
+      - SEARXNG_HTTP_COMPRESSION=true
+      
+      # Default search language (empty = auto-detect)
+      - SEARXNG_DEFAULT_LANGUAGE=
+      
+      # Safe search setting (0=off, 1=moderate, 2=strict)
+      - SEARXNG_SAFE_SEARCH=0
+      
+      # Autocomplete provider (dbpedia, duckduckgo, google, etc.)
+      - SEARXNG_AUTOCOMPLETE=duckduckgo
+      
+      # Default categories (general, images, news, etc.)
+      - SEARXNG_DEFAULT_CATEGORIES=general
+      
+      # Default engines (comma-separated, empty = all)
+      - SEARXNG_DEFAULT_ENGINES=
+    
+    # Connect to custom network
+    networks:
+      - web-mcp-network
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Health check for SearXNG
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (optional, uncomment to enable)
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '1'
+    #       memory: 1G
+    #     reservations:
+    #       cpus: '0.25'
+    #       memory: 256M
+
+  # ---------------------------------------------------------------------------
+  # Optional: Redis for distributed caching
+  # ---------------------------------------------------------------------------
+  # Uncomment to enable Redis-based caching for multi-instance deployments
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: web-mcp-redis
+  #   hostname: redis
+  #   
+  #   ports:
+  #     - "6379:6379"
+  #   
+  #   volumes:
+  #     - redis-data:/data
+  #   
+  #   command: redis-server --appendonly yes
+  #   
+  #   networks:
+  #     - web-mcp-network
+  #   
+  #   restart: unless-stopped
+  #   
+  #   healthcheck:
+  #     test: ["CMD", "redis-cli", "ping"]
+  #     interval: 30s
+  #     timeout: 10s
+  #     retries: 3
+  #     start_period: 5s
+
+# =============================================================================
+# USAGE
+# =============================================================================
+# 
+# Start all services:
+#   docker-compose up -d
+#
+# View logs:
+#   docker-compose logs -f
+#
+# View logs for a specific service:
+#   docker-compose logs -f web-mcp
+#
+# Stop all services:
+#   docker-compose down
+#
+# Stop and remove volumes:
+#   docker-compose down -v
+#
+# Rebuild and restart:
+#   docker-compose up -d --build
+#
+# Check service health:
+#   docker-compose ps
+#
+# =============================================================================
+# PRODUCTION NOTES
+# =============================================================================
+#
+# 1. Change SEARXNG_SECRET to a unique, random value
+# 2. Set WEB_MCP_AUTH_TOKEN for API authentication
+# 3. Consider using a reverse proxy (nginx/traefik) with HTTPS
+# 4. Review and adjust resource limits based on your needs
+# 5. Set up log aggregation and monitoring
+# 6. Configure backup strategy for volumes
+# 7. Review SearXNG settings for your use case
+# 8. Consider network security (firewall rules, etc.)
+#
+# =============================================================================

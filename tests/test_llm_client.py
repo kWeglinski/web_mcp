@@ -1,7 +1,8 @@
 """Unit tests for the LLM client with mocked HTTP calls."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from web_mcp.llm.client import LLMClient, LLMError, get_llm_client
 
@@ -20,7 +21,7 @@ class TestLLMClient:
             config.embedding_model = "text-embedding-3-small"
             config.request_timeout = 60
             mock_config.return_value = config
-            
+
             return LLMClient()
 
     @pytest.mark.asyncio
@@ -66,20 +67,14 @@ class TestLLMClient:
         """Test successful chat completion."""
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "choices": [
-                {"message": {"content": "Test response"}}
-            ]
-        }
+        mock_response.json.return_value = {"choices": [{"message": {"content": "Test response"}}]}
 
         with patch("web_mcp.llm.client.httpx.AsyncClient") as mock_client_class:
             mock_httpx_client = MagicMock()
             mock_httpx_client.post = AsyncMock(return_value=mock_response)
             mock_client_class.return_value = mock_httpx_client
 
-            response = await client.chat([
-                {"role": "user", "content": "Hello"}
-            ])
+            response = await client.chat([{"role": "user", "content": "Hello"}])
 
             assert response == "Test response"
 
@@ -96,9 +91,7 @@ class TestLLMClient:
             mock_client_class.return_value = mock_httpx_client
 
             with pytest.raises(LLMError) as exc_info:
-                await client.chat([
-                    {"role": "user", "content": "Hello"}
-                ])
+                await client.chat([{"role": "user", "content": "Hello"}])
 
             assert "500" in str(exc_info.value)
 
@@ -109,8 +102,8 @@ class TestLLMClient:
         mock_response.status_code = 200
 
         async def mock_aiter_lines():
-            yield "data: {\"choices\": [{\"delta\": {\"content\": \"Test\"}}]}"
-            yield "data: {\"choices\": [{\"delta\": {\"content\": \" response\"}}]}"
+            yield 'data: {"choices": [{"delta": {"content": "Test"}}]}'
+            yield 'data: {"choices": [{"delta": {"content": " response"}}]}'
             yield "data: [DONE]"
 
         mock_response.aiter_lines = mock_aiter_lines
@@ -125,9 +118,7 @@ class TestLLMClient:
             mock_client_class.return_value = mock_httpx_client
 
             chunks = []
-            async for chunk in client.chat_stream([
-                {"role": "user", "content": "Hello"}
-            ]):
+            async for chunk in client.chat_stream([{"role": "user", "content": "Hello"}]):
                 chunks.append(chunk)
 
             assert "".join(chunks) == "Test response"
@@ -149,9 +140,7 @@ class TestLLMClient:
             mock_client_class.return_value = mock_httpx_client
 
             with pytest.raises(LLMError) as exc_info:
-                async for _ in client.chat_stream([
-                    {"role": "user", "content": "Hello"}
-                ]):
+                async for _ in client.chat_stream([{"role": "user", "content": "Hello"}]):
                     pass
 
             assert "500" in str(exc_info.value)
@@ -163,11 +152,11 @@ class TestLLMClient:
             mock_httpx_client = MagicMock()
             mock_httpx_client.aclose = AsyncMock()
             mock_client_class.return_value = mock_httpx_client
-            
+
             await client._get_client()
-            
+
             await client.close()
-            
+
             mock_httpx_client.aclose.assert_called_once()
 
 
@@ -179,7 +168,7 @@ class TestGetLlmClient:
         with patch("web_mcp.llm.client.get_llm_config"):
             client1 = get_llm_client()
             client2 = get_llm_client()
-            
+
             assert client1 is client2
 
     def test_get_llm_client_creates_new_if_none(self):
@@ -187,8 +176,9 @@ class TestGetLlmClient:
         with patch("web_mcp.llm.client.get_llm_config"):
             # Clear the global client
             import web_mcp.llm.client as client_module
+
             client_module._client = None
-            
+
             result = get_llm_client()
-            
+
             assert isinstance(result, LLMClient)

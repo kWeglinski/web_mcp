@@ -1,15 +1,16 @@
 """Unit tests for the searxng module with mocked HTTP calls."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 from web_mcp.searxng import (
     SearXNGError,
-    search,
     get_searxng_url,
+    parse_date,
     parse_searxng_to_markdown,
     remove_html_tags,
-    parse_date,
+    search,
 )
 
 
@@ -25,6 +26,7 @@ class TestGetSearxngUrl:
     def test_get_searxng_url_not_configured(self):
         """Test when SearXNG is not configured."""
         import os
+
         env_copy = os.environ.copy()
         env_copy.pop("WEB_MCP_SEARXNG_URL", None)
         with patch.dict("os.environ", env_copy, clear=True):
@@ -72,6 +74,7 @@ class TestSearch:
     async def test_search_not_configured(self):
         """Test search when SearXNG is not configured."""
         import os
+
         env_copy = os.environ.copy()
         env_copy.pop("WEB_MCP_SEARXNG_URL", None)
         with patch.dict("os.environ", env_copy, clear=True):
@@ -85,9 +88,7 @@ class TestSearch:
         """Test search with timeout."""
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
-            mock_client.get = AsyncMock(
-                side_effect=Exception("Request timed out")
-            )
+            mock_client.get = AsyncMock(side_effect=Exception("Request timed out"))
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
@@ -104,9 +105,7 @@ class TestSearch:
 
         with patch("httpx.AsyncClient") as mock_client_class:
             mock_client = MagicMock()
-            mock_client.get = AsyncMock(
-                side_effect=Exception("HTTP error 500")
-            )
+            mock_client.get = AsyncMock(side_effect=Exception("HTTP error 500"))
             mock_client_class.return_value.__aenter__.return_value = mock_client
 
             with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):

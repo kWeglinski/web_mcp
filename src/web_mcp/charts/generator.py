@@ -1,7 +1,7 @@
 import base64
-import plotly.graph_objects as go
-import plotly.express as px
 from typing import Any, Literal
+
+import plotly.graph_objects as go
 from pydantic import BaseModel, Field
 
 CHART_TYPES = Literal[
@@ -181,24 +181,29 @@ def _create_gauge_chart(config: ChartConfig) -> go.Figure:
     max_val = data.get("max", 100)
     min_val = data.get("min", 0)
     thresholds = data.get("thresholds", {"steps": []})
-    
-    fig = go.Figure(go.Indicator(
-        mode="gauge+number",
-        value=value,
-        title={"text": title},
-        gauge={
-            "axis": {"range": [min_val, max_val]},
-            "steps": thresholds.get("steps", [
-                {"range": [min_val, max_val * 0.5], "color": "lightgray"},
-                {"range": [max_val * 0.5, max_val * 0.8], "color": "gray"},
-            ]),
-            "threshold": {
-                "line": {"color": "red", "width": 4},
-                "thickness": 0.75,
-                "value": data.get("threshold", max_val * 0.9),
+
+    fig = go.Figure(
+        go.Indicator(
+            mode="gauge+number",
+            value=value,
+            title={"text": title},
+            gauge={
+                "axis": {"range": [min_val, max_val]},
+                "steps": thresholds.get(
+                    "steps",
+                    [
+                        {"range": [min_val, max_val * 0.5], "color": "lightgray"},
+                        {"range": [max_val * 0.5, max_val * 0.8], "color": "gray"},
+                    ],
+                ),
+                "threshold": {
+                    "line": {"color": "red", "width": 4},
+                    "thickness": 0.75,
+                    "value": data.get("threshold", max_val * 0.9),
+                },
             },
-        },
-    ))
+        )
+    )
     return fig
 
 
@@ -208,17 +213,19 @@ def _create_indicator_chart(config: ChartConfig) -> go.Figure:
     title = data.get("title", config.title or "Indicator")
     mode = data.get("mode", "number+delta")
     delta = data.get("delta", None)
-    
+
     indicator_mode = mode
     if delta is not None:
         indicator_mode = "number+delta"
-    
-    fig = go.Figure(go.Indicator(
-        mode=indicator_mode,
-        value=value,
-        title={"text": title},
-        delta={"reference": delta} if delta is not None else None,
-    ))
+
+    fig = go.Figure(
+        go.Indicator(
+            mode=indicator_mode,
+            value=value,
+            title={"text": title},
+            delta={"reference": delta} if delta is not None else None,
+        )
+    )
     return fig
 
 
@@ -228,12 +235,14 @@ def _create_bubble_chart(config: ChartConfig) -> go.Figure:
     y = data.get("y", [])
     size = data.get("size", data.get("sizes", [20] * len(x)))
     color = data.get("color", data.get("colors", None))
-    fig = go.Figure(go.Scatter(
-        x=x,
-        y=y,
-        mode="markers",
-        marker={"size": size, "color": color, "sizemode": "diameter"},
-    ))
+    fig = go.Figure(
+        go.Scatter(
+            x=x,
+            y=y,
+            mode="markers",
+            marker={"size": size, "color": color, "sizemode": "diameter"},
+        )
+    )
     return fig
 
 
@@ -257,7 +266,7 @@ CHART_BUILDERS = {
 
 def create_chart(config: ChartConfig) -> str:
     fig = _build_figure(config)
-    
+
     return fig.to_html(
         include_plotlyjs="cdn",
         full_html=True,
@@ -268,18 +277,20 @@ def create_chart(config: ChartConfig) -> str:
 def _build_figure(config: ChartConfig) -> go.Figure:
     chart_type = config.type
     if chart_type not in CHART_BUILDERS:
-        raise ChartError(f"Unknown chart type: {chart_type}. Valid types: {list(CHART_BUILDERS.keys())}")
-    
+        raise ChartError(
+            f"Unknown chart type: {chart_type}. Valid types: {list(CHART_BUILDERS.keys())}"
+        )
+
     builder = CHART_BUILDERS[chart_type]
     fig = builder(config)
-    
+
     if config.title:
         fig.update_layout(title=config.title)
     if config.x_label:
         fig.update_layout(xaxis_title=config.x_label)
     if config.y_label:
         fig.update_layout(yaxis_title=config.y_label)
-    
+
     options = config.options
     if options:
         if "width" in options or "height" in options:
@@ -300,7 +311,7 @@ def _build_figure(config: ChartConfig) -> go.Figure:
                             trace.marker.color = colors[i]  # type: ignore
                         elif hasattr(trace, "line"):
                             trace.line.color = colors[i]  # type: ignore
-    
+
     return fig
 
 
@@ -311,9 +322,10 @@ def _ensure_chrome() -> bool:
     global _chrome_installed
     if _chrome_installed:
         return True
-    
+
     try:
         import kaleido
+
         kaleido.get_chrome_sync()
         _chrome_installed = True
         return True
@@ -321,10 +333,12 @@ def _ensure_chrome() -> bool:
         return False
 
 
-def create_chart_image_bytes(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> bytes:
+def create_chart_image_bytes(
+    config: ChartConfig, format: str = "png", width: int = 800, height: int = 600
+) -> bytes:
     fig = _build_figure(config)
     fig.update_layout(width=width, height=height)
-    
+
     try:
         img_bytes = fig.to_image(format=format, engine="kaleido")
     except RuntimeError as e:
@@ -337,11 +351,13 @@ def create_chart_image_bytes(config: ChartConfig, format: str = "png", width: in
                 )
         else:
             raise
-    
+
     return img_bytes
 
 
-def create_chart_image(config: ChartConfig, format: str = "png", width: int = 800, height: int = 600) -> str:
+def create_chart_image(
+    config: ChartConfig, format: str = "png", width: int = 800, height: int = 600
+) -> str:
     img_bytes = create_chart_image_bytes(config, format, width, height)
     b64 = base64.b64encode(img_bytes).decode("utf-8")
     mime_type = f"image/{format}"

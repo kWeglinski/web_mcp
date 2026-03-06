@@ -1,0 +1,44 @@
+default_language_version:
+  python: python3.12
+
+exclude: ^(\.venv|venv|node_modules)/
+
+repos:
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff (lint)
+        entry: ruff check
+        language: system
+        types: [python]
+        args: [--fix, --exit-non-zero-on-fix]
+        pass_filenames: false
+
+      - id: black
+        name: black (format)
+        entry: black
+        language: system
+        types: [python]
+        pass_filenames: false
+
+      - id: mypy
+        name: mypy (type check)
+        entry: mypy
+        language: system
+        types: [python]
+        args: [--strict]
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-json
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending

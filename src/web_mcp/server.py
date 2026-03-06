@@ -5,41 +5,40 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
-from typing import Optional
+from typing import Any
 
 # Add src to path for absolute imports when running directly
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mcp.server.fastmcp import FastMCP
+from datetime import UTC
+
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
-from pydantic import BaseModel, Field, AnyHttpUrl
+from mcp.server.fastmcp import FastMCP
+from mcp.types import ToolAnnotations
+from pydantic import AnyHttpUrl, Field
 
-from web_mcp.config import Config, get_config
-from web_mcp.fetcher import FetchError, fetch_url_with_fallback, fetch_url as fetch_html_httpx
-from web_mcp.playwright_fetcher import fetch_with_playwright_cached, PlaywrightFetchError
-from web_mcp.extractors.trafilatura import TrafilaturaExtractor
-from web_mcp.extractors.custom import CustomSelectorExtractor
-from web_mcp.optimizer import optimize_content, estimate_tokens
-from web_mcp.searxng import search
-from web_mcp.logging import setup_logging, get_logger
-from web_mcp.charts import create_chart, ChartConfig, ChartError
+from web_mcp.charts import ChartConfig, ChartError, create_chart
+from web_mcp.config import get_config
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
+from web_mcp.extractors.custom import CustomSelectorExtractor
+from web_mcp.extractors.trafilatura import TrafilaturaExtractor
+from web_mcp.fetcher import FetchError, fetch_url_with_fallback
+from web_mcp.logging import get_logger, setup_logging
+from web_mcp.playwright_fetcher import PlaywrightFetchError
+from web_mcp.searxng import search
+from web_mcp.security import validate_url, validate_url_ip
 
 
 class StaticTokenVerifier:
     """Simple token verifier that validates against a static token."""
-    
+
     def __init__(self, expected_token: str):
         self.expected_token = expected_token
-    
+
     async def verify_token(self, token: str) -> AccessToken | None:
         if token == self.expected_token:
-            return AccessToken(
-                token=token,
-                client_id="static",
-                scopes=[]
-            )
+            return AccessToken(token=token, client_id="static", scopes=[])
         return None
 
 
@@ -53,14 +52,19 @@ def create_auth_config() -> tuple[TokenVerifier | None, AuthSettings | None]:
             AuthSettings(
                 issuer_url=AnyHttpUrl(server_url),
                 resource_server_url=AnyHttpUrl(server_url),
-            )
+            ),
         )
     return None, None
+
 
 # Server configuration
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("WEB_MCP_SERVER_PORT", "8000"))
 VERSION = "1.0.0"
+
+# Output schemas disabled by default to reduce context footprint
+# Set WEB_MCP_OUTPUT_SCHEMAS=true to enable
+OUTPUT_SCHEMAS = os.environ.get("WEB_MCP_OUTPUT_SCHEMAS", "").lower() in ("true", "1", "yes")
 
 # Setup logging
 setup_logging()
@@ -89,17 +93,17 @@ def increment_cache_hits() -> None:
 
 def get_health_metrics() -> dict:
     """Get health metrics for the /health endpoint.
-    
+
     Returns:
         Dictionary with health metrics
     """
     global _request_count, _cache_hits
     uptime = time.time() - SERVER_START_TIME
-    
+
     # Calculate cache hit rate
     total_requests = _request_count + _cache_hits
     cache_hit_rate = (_cache_hits / total_requests) if total_requests > 0 else 0.0
-    
+
     return {
         "status": "healthy",
         "version": VERSION,
@@ -125,8 +129,8 @@ if _token_verifier:
 mcp = FastMCP(
     name="web-browsing",
     instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
-                 "Use `get_page` to browse websites and extract their main content, "
-                 "`search_web` to search the web using SearXNG.",
+    "Use `get_page` to browse websites and extract their main content, "
+    "`search_web` to search the web using SearXNG.",
     host=SERVER_HOST,
     port=SERVER_PORT,
     lifespan=lifespan,
@@ -137,22 +141,22 @@ mcp = FastMCP(
 
 @mcp.custom_route("/c/{content_id}", methods=["GET"])
 async def serve_stored_content(request):
-    from starlette.responses import Response, HTMLResponse, PlainTextResponse
-    
+    from starlette.responses import HTMLResponse, PlainTextResponse, Response
+
     content_id = request.path_params.get("content_id", "")
     if not content_id or not all(c.isalnum() for c in content_id):
         return Response(content="Invalid content ID", status_code=400)
-    
+
     store = get_content_store()
     stored = store.get(content_id)
-    
+
     if stored is None:
         return Response(content="Content not found or expired", status_code=404)
-    
+
     token = request.query_params.get("token", "")
     if token != stored.token:
         return Response(content="Unauthorized", status_code=401)
-    
+
     content_type = stored.content_type
     content = stored.content
     if isinstance(content, bytes):
@@ -168,112 +172,82 @@ async def serve_stored_content(request):
 @mcp.custom_route("/i/{content_id}", methods=["GET"])
 async def serve_chart_image(request):
     from starlette.responses import Response
-    
+
     content_id = request.path_params.get("content_id", "")
     if content_id.endswith(".png"):
         content_id = content_id[:-4]
-    
+
     if not content_id or not all(c.isalnum() for c in content_id):
         return Response(content="Invalid content ID", status_code=400)
-    
+
     store = get_content_store()
     stored = store.get(content_id)
-    
+
     if stored is None:
         return Response(content="Image not found or expired", status_code=404)
-    
+
     token = request.query_params.get("token", "")
     if token != stored.token:
         return Response(content="Unauthorized", status_code=401)
-    
+
     content = stored.content
     if isinstance(content, bytes):
-        return Response(content=content, media_type="image/png", headers={"Cache-Control": "public, max-age=3600"})
+        return Response(
+            content=content,
+            media_type="image/png",
+            headers={"Cache-Control": "public, max-age=3600"},
+        )
     else:
         return Response(content="Invalid image data", status_code=500)
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
 async def render_html(
-    html: str = Field(description="HTML/CSS/JS content to render"),
-    content_type: str = Field(
-        default="text/html",
-        description="Content MIME type (text/html, text/css, application/javascript)"
-    ),
+    html: str = Field(description="HTML content to render"),
+    content_type: str = Field(default="text/html", description="MIME type"),
 ) -> str:
-    """Store HTML/CSS/JS content and return a viewable URL.
-    
-    Content is stored for 1 hour (configurable via WEB_MCP_CONTENT_TTL) with a unique URL.
-    Requires WEB_MCP_PUBLIC_URL to be configured for URL output.
-    
-    Args:
-        html: HTML content to render (can include CSS in <style> and JS in <script> tags)
-        content_type: MIME type of the content (default: text/html)
-        
-    Returns:
-        Full URL to view the content, or error message if WEB_MCP_PUBLIC_URL not configured
-    """
+    """Store HTML content and return a viewable URL. Requires WEB_MCP_PUBLIC_URL. Content expires after 1 hour."""
     increment_request_count()
-    
+
     config = get_config()
-    
+
     if not config.public_url:
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL (e.g., https://mcp.example.com)"
-    
+
     store = get_content_store()
     content_id, token = store.store(html, content_type=content_type)
-    
+
     url = f"{config.public_url}/c/{content_id}?token={token}"
-    
+
     return url
 
 
-@mcp.tool()
-async def health() -> dict:
-    """Get server health metrics.
-    
-    Returns:
-        Dictionary with health metrics including cache hit rate, request count, and uptime
-    """
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
+async def health() -> dict[str, Any]:
+    """Get server health metrics: cache hit rate, request count, uptime."""
     increment_request_count()
     logger.info("Health check requested")
     return get_health_metrics()
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
 async def current_datetime(
-    timezone: str = Field(
-        default="UTC",
-        description="Timezone name (e.g., 'UTC', 'America/New_York', 'Europe/London')"
-    ),
-    format: str = Field(
-        default="iso",
-        description="Output format: 'iso' (ISO 8601), 'unix' (timestamp), or 'readable' (human-readable)"
-    )
+    timezone: str = Field(default="UTC", description="Timezone (e.g., UTC, America/New_York)"),
+    format: str = Field(default="iso", description="Format: iso, unix, or readable"),
 ) -> str:
-    """Get the current date and time.
-    
-    Returns the current date and time in the specified timezone and format.
-    
-    Args:
-        timezone: Timezone name (default: UTC)
-        format: Output format - 'iso', 'unix', or 'readable'
-        
-    Returns:
-        Current date and time as a string
-    """
-    from datetime import datetime, timezone as tz
+    """Get current date/time in specified timezone. Formats: iso, unix, readable."""
+    from datetime import datetime
     from zoneinfo import ZoneInfo
-    
+
     increment_request_count()
-    
+
     try:
         if timezone.upper() == "UTC":
-            now = datetime.now(tz.utc)
+            now = datetime.now(UTC)
         else:
             tz_info = ZoneInfo(timezone)
             now = datetime.now(tz_info)
-        
+
         if format == "unix":
             return str(int(now.timestamp()))
         elif format == "readable":
@@ -283,52 +257,45 @@ async def current_datetime(
     except Exception as e:
         return f"Error: {e}"
 
+
 # Default extractor
 _default_extractor = TrafilaturaExtractor()
 _custom_extractor = CustomSelectorExtractor()
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    structured_output=OUTPUT_SCHEMAS,
+)
 async def get_page(
-    url: str = Field(description="The URL to fetch"),
-    query: Optional[str] = Field(
-        default=None,
-        description="If provided, returns only chunks relevant to this query using BM25 ranking"
+    url: str = Field(description="URL to fetch"),
+    query: str | None = Field(
+        default=None, description="Return only BM25-relevant chunks for this query"
     ),
     extractor: str = Field(
-        default="trafilatura",
-        description="Extractor to use: 'trafilatura', 'readability', or 'custom'"
-    )
+        default="trafilatura", description="Extractor: trafilatura, readability, or custom"
+    ),
 ) -> str:
-    """Fetch and extract content from a URL.
-    
-    Args:
-        url: The URL to fetch
-        query: If provided, returns only relevant chunks using BM25 ranking
-        extractor: Which extractor to use
-        
-    Returns:
-        Extracted text content
-    """
+    """Fetch and extract main content from a URL. Use query for BM25-ranked chunk retrieval."""
     config = get_config()
-    
+
     try:
         html = await fetch_url_with_fallback(url, config)
     except (FetchError, PlaywrightFetchError) as e:
         return f"Error fetching URL: {e}"
-    
+
     if query:
-        from web_mcp.research.chunker import chunk_text
         from web_mcp.research.bm25 import BM25
-        
+        from web_mcp.research.chunker import chunk_text
+
         try:
             extracted = await _default_extractor.extract(html, url)
         except Exception as e:
             return f"Error extracting content: {e}"
-        
+
         if not extracted.text or not extracted.text.strip():
             return "No content extracted from page"
-        
+
         chunks = chunk_text(
             extracted.text,
             url,
@@ -336,158 +303,119 @@ async def get_page(
             chunk_size=500,
             overlap=50,
         )
-        
+
         if not chunks:
             return extracted.text[:2000] if extracted.text else "No content"
-        
+
         documents = [{"text": c.text, "chunk": c} for c in chunks]
         bm25 = BM25()
         bm25.fit(documents, text_field="text")
         ranked = bm25.rank(query)
-        
+
         top_chunks = ranked[:5]
-        
-        if extracted.title:
-            header = f"Title: {extracted.title}\n\n"
-        else:
-            header = ""
-        
+
+        header = f"Title: {extracted.title}\n\n" if extracted.title else ""
+
         parts = []
-        for doc, score in top_chunks:
+        for doc, _score in top_chunks:
             chunk = doc["chunk"]
             parts.append(chunk.text)
-        
+
         return header + "\n\n---\n\n".join(parts)
-    
+
     if extractor == "readability":
         from web_mcp.extractors.readability import ReadabilityExtractor
+
         extractor_obj = ReadabilityExtractor()
     elif extractor == "custom":
         extractor_obj = _custom_extractor
     else:
         extractor_obj = _default_extractor
-    
+
     try:
         extracted = await extractor_obj.extract(html, url)
     except Exception as e:
         return f"Error extracting content: {e}"
-    
+
     return extracted.text
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    structured_output=OUTPUT_SCHEMAS,
+)
 async def search_web(
-    query: str = Field(description="The search query string")
+    query: str = Field(description="Search query"),
 ) -> str:
-    """Search the web using SearXNG and return results as LLM-optimized markdown.
-    
-    Fetches 30 results, reranks by relevance using BM25, and returns top 5
-    formatted as markdown for optimal LLM context window usage.
-    
-    Args:
-        query: The search query string
-        
-    Returns:
-        Markdown-formatted search results
-    """
+    """Search the web via SearXNG. Returns top 5 results ranked by BM25 relevance."""
     from web_mcp.searxng import parse_searxng_to_markdown
-    
+
     try:
         results = await search(query, 30)
-        
+
         if results:
             from web_mcp.research.bm25 import rerank_search_results
+
             results = rerank_search_results(results, query)
-        
+
         json_data = {"results": results}
         return parse_searxng_to_markdown(json_data, query, max_results=5)
-        
+
     except Exception as e:
         return f"*Search failed: {e}*"
 
 
-@mcp.tool()
+@mcp.tool(annotations=ToolAnnotations(openWorldHint=True), structured_output=OUTPUT_SCHEMAS)
 async def create_chart_tool(
     type: str = Field(
         description="Chart type: line, bar, scatter, pie, area, histogram, box, heatmap, treemap, sunburst, funnel, gauge, indicator, bubble"
     ),
-    data: dict = Field(
-        description="Chart data as JSON. Keys vary by chart type. Common: x, y, values, labels, names"
-    ),
-    title: str = Field(
-        default="",
-        description="Chart title"
-    ),
-    x_label: str = Field(
-        default="",
-        description="X-axis label"
-    ),
-    y_label: str = Field(
-        default="",
-        description="Y-axis label"
-    ),
+    data: dict = Field(description="Chart data (keys: x, y, values, labels, names, etc.)"),
+    title: str = Field(default="", description="Chart title"),
+    x_label: str = Field(default="", description="X-axis label"),
+    y_label: str = Field(default="", description="Y-axis label"),
     options: dict = Field(
-        default_factory=dict,
-        description="Additional options: width, height, template, show_legend, colors"
+        default_factory=dict, description="Styling: width, height, template, colors"
     ),
-    output: str = Field(
-        default="html",
-        description="Output format: 'html' (raw HTML), 'url' (viewable link), 'image' (PNG URL)"
-    ),
+    output: str = Field(default="html", description="Output: html, url, or image"),
 ) -> str:
-    """Create an interactive Plotly chart.
-    
-    Creates 14 chart types with modern, interactive visualizations.
-    
-    Output formats:
-    - html: Returns full HTML with embedded Plotly (default)
-    - url: Stores chart and returns viewable URL (requires WEB_MCP_PUBLIC_URL)
-    - image: Stores PNG and returns viewable image URL (requires WEB_MCP_PUBLIC_URL)
-    
-    Chart types and required data keys:
-    - line, bar, scatter, area: x (labels), y (values)
-    - pie: labels, values
-    - histogram: x (values to bin)
-    - box: y (values), optional x (groups)
-    - heatmap: z (2D matrix), optional x, y (labels)
-    - treemap, sunburst: labels, values, parents
-    - funnel: labels (stages), values
-    - gauge: value, optional min, max, threshold
-    - indicator: value, optional delta (reference value)
-    - bubble: x, y, size, optional color
-    
-    Args:
-        type: Chart type (line, bar, scatter, pie, area, histogram, box, heatmap, treemap, sunburst, funnel, gauge, indicator, bubble)
-        data: Chart data as JSON object with keys appropriate for chart type
-        title: Chart title
-        x_label: X-axis label
-        y_label: Y-axis label
-        options: Additional styling options (width, height, template, show_legend, colors)
-        output: Output format - 'html', 'url', or 'image'
-        
-    Returns:
-        HTML string, URL, or base64 PNG data URI depending on output format
-    """
+    """Create interactive Plotly chart. Output as HTML, URL (requires WEB_MCP_PUBLIC_URL), or PNG image."""
     increment_request_count()
-    
-    valid_types = ["line", "bar", "scatter", "pie", "area", "histogram", "box", "heatmap", "treemap", "sunburst", "funnel", "gauge", "indicator", "bubble"]
+
+    valid_types = [
+        "line",
+        "bar",
+        "scatter",
+        "pie",
+        "area",
+        "histogram",
+        "box",
+        "heatmap",
+        "treemap",
+        "sunburst",
+        "funnel",
+        "gauge",
+        "indicator",
+        "bubble",
+    ]
     if type not in valid_types:
         return f"Error: Invalid chart type '{type}'. Valid types: {', '.join(valid_types)}"
-    
+
     valid_outputs = ["html", "url", "image"]
     if output not in valid_outputs:
         return f"Error: Invalid output format '{output}'. Valid formats: {', '.join(valid_outputs)}"
-    
+
     config = get_config()
-    
+
     if output == "url" and not config.public_url:
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for URL output."
-    
+
     if output == "image" and not config.public_url:
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for image output."
-    
+
     try:
         from web_mcp.charts.generator import CHART_TYPES, create_chart_image_bytes
+
         chart_type: CHART_TYPES = type  # type: ignore
         chart_config = ChartConfig(
             type=chart_type,
@@ -497,7 +425,7 @@ async def create_chart_tool(
             data=data,
             options=options,
         )
-        
+
         if output == "image":
             img_bytes = create_chart_image_bytes(chart_config)
             store = get_content_store()
@@ -519,111 +447,142 @@ async def create_chart_tool(
         return f"Error: {e}"
 
 
-@mcp.tool()
+@mcp.tool(
+    annotations=ToolAnnotations(destructiveHint=True, openWorldHint=True),
+    structured_output=OUTPUT_SCHEMAS,
+)
 async def run_javascript(
     code: str = Field(description="JavaScript code to execute"),
-    timeout_ms: int = Field(
-        default=5000,
-        description="Execution timeout in milliseconds (default: 5000)"
-    ),
-    context: dict = Field(
-        default_factory=dict,
-        description="Optional variables to inject into JS context as JSON-serializable dict"
-    ),
+    timeout_ms: int = Field(default=5000, description="Timeout in ms"),
+    context: dict = Field(default_factory=dict, description="Variables to inject into JS context"),
 ) -> str:
-    """Execute JavaScript code in a sandboxed V8 environment and return output.
-    
-    Runs JS in an isolated context. Supports ES2023 features including async/await.
-    
-    Built-in functions:
-    - fetch(url, options?): Make HTTP requests. Returns {status, statusText, headers, body}
-      - options.method: HTTP method (default: "GET")
-      - options.headers: Object with request headers
-      - options.body: Request body string
-      - options.timeout: Timeout in ms (default: 10000)
-    
-    Example:
-        code: "Math.pow(2, 10)"  -> returns 1024
-        code: "[1,2,3].map(x => x * 2)"  -> returns [2, 4, 6]
-        code: "(await fetch('https://api.ipify.org?format=json')).body"  -> fetches data
-    
-    Args:
-        code: JavaScript code to execute (expression or statements)
-        timeout_ms: Maximum execution time in milliseconds (default 5000)
-        context: Optional dict of variables to inject into the JS context
-        
-    Returns:
-        JSON representation of the return value, or error message if execution fails
-    """
+    """Execute JavaScript in sandboxed V8. Supports async/await and fetch(). Has SSRF protection."""
     import asyncio
+
     import httpx
-    import ssl
-    
+
+    config = get_config()
     increment_request_count()
-    
-    # Strip surrounding quotes if code is wrapped like a JSON string
+
     code = code.strip()
-    if (code.startswith('"') and code.endswith('"')) or (code.startswith("'") and code.endswith("'")):
+    if (code.startswith('"') and code.endswith('"')) or (
+        code.startswith("'") and code.endswith("'")
+    ):
         code = code[1:-1]
-    
+
     try:
         from py_mini_racer import MiniRacer
     except ImportError:
         return "Error: mini-racer not installed. Run: pip install mini-racer"
-    
+
+    fetch_state = {"fetch_count": 0, "total_bytes": 0}
+
     async def py_fetch(url: str, options: dict = None) -> str:
-        """HTTP fetch implementation - returns JSON string."""
+        """HTTP fetch implementation with security controls - returns JSON string."""
         options = options or {}
-        
+
+        if not validate_url(url):
+            return json.dumps({"error": "Invalid URL: must use http or https scheme", "status": 0})
+        if not validate_url_ip(url):
+            return json.dumps(
+                {"error": "URL resolves to private/restricted IP address", "status": 0}
+            )
+
+        if fetch_state["fetch_count"] >= config.js_fetch_max_requests:
+            return json.dumps(
+                {
+                    "error": f"Fetch limit exceeded (max {config.js_fetch_max_requests} requests)",
+                    "status": 0,
+                }
+            )
+
         method = options.get("method", "GET")
         headers = options.get("headers", {})
         body = options.get("body")
-        timeout = options.get("timeout", 10000) / 1000.0
-        
+        timeout = options.get("timeout", config.js_fetch_timeout) / 1000.0
+
         try:
-            # Create SSL context that allows all certs for flexibility
-            ssl_ctx = ssl.create_default_context()
-            ssl_ctx.check_hostname = False
-            ssl_ctx.verify_mode = ssl.CERT_NONE
-            
-            async with httpx.AsyncClient(timeout=timeout, verify=ssl_ctx) as client:
-                response = await client.request(
+            verify_ssl = config.js_fetch_verify_ssl
+
+            async with httpx.AsyncClient(timeout=timeout, verify=verify_ssl) as client:
+                async with client.stream(
                     method=method,
                     url=url,
                     headers=headers,
                     content=body,
                     follow_redirects=True,
-                )
-            
-            result = {
-                "status": response.status_code,
-                "statusText": response.reason_phrase,
-                "headers": dict(response.headers),
-                "body": response.text,
-            }
-            return json.dumps(result)
+                ) as response:
+                    content_length = response.headers.get("content-length")
+                    if content_length:
+                        size = int(content_length)
+                        if size > config.js_fetch_max_response_size:
+                            return json.dumps(
+                                {
+                                    "error": f"Response too large: {size} bytes (max {config.js_fetch_max_response_size})",
+                                    "status": 0,
+                                }
+                            )
+                        if fetch_state["total_bytes"] + size > config.js_fetch_max_total_bytes:
+                            return json.dumps(
+                                {
+                                    "error": f"Total fetch limit exceeded (max {config.js_fetch_max_total_bytes} bytes)",
+                                    "status": 0,
+                                }
+                            )
+
+                    body_bytes = b""
+                    async for chunk in response.aiter_bytes():
+                        body_bytes += chunk
+                        if len(body_bytes) > config.js_fetch_max_response_size:
+                            return json.dumps(
+                                {
+                                    "error": f"Response exceeded size limit ({config.js_fetch_max_response_size} bytes)",
+                                    "status": 0,
+                                }
+                            )
+                        if (
+                            fetch_state["total_bytes"] + len(body_bytes)
+                            > config.js_fetch_max_total_bytes
+                        ):
+                            return json.dumps(
+                                {
+                                    "error": f"Total fetch limit exceeded (max {config.js_fetch_max_total_bytes} bytes)",
+                                    "status": 0,
+                                }
+                            )
+
+                    fetch_state["fetch_count"] += 1
+                    fetch_state["total_bytes"] += len(body_bytes)
+
+                    result = {
+                        "status": response.status_code,
+                        "statusText": response.reason_phrase,
+                        "headers": dict(response.headers),
+                        "body": body_bytes.decode("utf-8", errors="replace"),
+                    }
+                    return json.dumps(result)
+
         except httpx.TimeoutException:
             return json.dumps({"error": f"Request timed out after {timeout}s", "status": 0})
         except Exception as e:
             return json.dumps({"error": str(e), "status": 0})
-    
+
     try:
         mr = MiniRacer()
-        
-        # Build the full code with context variables injected
+
         context_lines = []
         for key, value in context.items():
             if not key.isidentifier():
-                return f"Error: Invalid context variable name '{key}'. Must be a valid JS identifier."
+                return (
+                    f"Error: Invalid context variable name '{key}'. Must be a valid JS identifier."
+                )
             context_lines.append(f"const {key} = {json.dumps(value)};")
-        
+
         context_code = "\n".join(context_lines)
-        
-        # Determine if code is an expression or statement
+
         code_trimmed = code.strip()
         is_statement = code_trimmed.endswith((";", "}"))
-        
-        # Build final code - always wrap in JSON.stringify for consistent return type
+
         if is_statement:
             full_code = f"(async () => {{\n{context_code}\n{code_trimmed}\n}})()"
         else:
@@ -631,70 +590,86 @@ async def run_javascript(
                 full_code = f"(async () => {{\n{context_code}\nreturn JSON.stringify({code_trimmed});\n}})()"
             else:
                 full_code = f"(async () => {{ return JSON.stringify({code_trimmed}); }})()"
-        
-        # Execute with timeout - keep fetch context manager open during execution
-        timeout_sec = timeout_ms / 1000.0
-        
+
+        effective_timeout_ms = min(timeout_ms, config.js_execution_timeout)
+        timeout_sec = effective_timeout_ms / 1000.0
+
         async with mr._ctx.wrap_py_function_as_js_function(py_fetch) as js_fetch:
             global_obj = await mr._ctx.eval_cancelable("globalThis")
             global_obj["__fetch_raw"] = js_fetch
-            
+
             await mr._ctx.eval_cancelable("""
+                class Response {
+                    constructor(data) {
+                        this._body = data.body || '';
+                        this.status = data.status || 0;
+                        this.statusText = data.statusText || '';
+                        this.headers = data.headers || {};
+                        this.ok = this.status >= 200 && this.status < 300;
+                    }
+
+                    json() {
+                        return JSON.parse(this._body);
+                    }
+
+                    text() {
+                        return this._body;
+                    }
+
+                    get body() {
+                        return this._body;
+                    }
+                }
+
                 async function fetch(url, options) {
                     const s = await __fetch_raw(url, options || {});
-                    return JSON.parse(s);
+                    const data = JSON.parse(s);
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    return new Response(data);
                 }
             """)
-            
+
             try:
-                result = await asyncio.wait_for(
-                    mr.eval_cancelable(full_code),
-                    timeout=timeout_sec
-                )
-            except asyncio.TimeoutError:
-                return f"Error: Execution timed out after {timeout_ms}ms"
-            
-            # Await promise INSIDE the context manager (required for fetch to work)
-            if hasattr(result, '__class__') and 'Promise' in result.__class__.__name__:
+                result = await asyncio.wait_for(mr.eval_cancelable(full_code), timeout=timeout_sec)
+            except TimeoutError:
+                return f"Error: Execution timed out after {effective_timeout_ms}ms"
+
+            if hasattr(result, "__class__") and "Promise" in result.__class__.__name__:
                 try:
                     result = await asyncio.wait_for(
-                        mr._ctx.await_promise(result),
-                        timeout=timeout_sec
+                        mr._ctx.await_promise(result), timeout=timeout_sec
                     )
-                except asyncio.TimeoutError:
-                    return f"Error: Execution timed out after {timeout_ms}ms"
-        
-        # Result should be a JSON string from JSON.stringify
+                except TimeoutError:
+                    return f"Error: Execution timed out after {effective_timeout_ms}ms"
+
         if result is None:
             return "null"
-        
-        # If result is a string, it's JSON from JSON.stringify
+
         if isinstance(result, str):
             try:
                 parsed = json.loads(result)
                 return json.dumps(parsed, ensure_ascii=False, indent=2)
             except json.JSONDecodeError:
                 return result
-        
-        # Fallback for other types
+
         if isinstance(result, (int, float, bool)):
             return json.dumps(result)
-        
+
         return str(result)
-            
+
     except Exception as e:
         error_msg = str(e)
         return f"Error: {error_msg}"
 
 
-
-
 def main():
     """Run the MCP server."""
     import sys
-    
+
     tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health, run_javascript"
-    
+
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
         logger.info(f"Tools available: {tools}")

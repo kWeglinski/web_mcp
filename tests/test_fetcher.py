@@ -1,11 +1,11 @@
 """Unit tests for the fetcher module."""
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
+import pytest
 
-from web_mcp.fetcher import FetchError, fetch_url, ContentLengthExceededError
+from web_mcp.fetcher import ContentLengthExceededError, FetchError, fetch_url
 
 
 class TestFetchUrl:
@@ -39,9 +39,7 @@ class TestFetchUrl:
         """Test fetch with timeout error."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            mock_client.get = AsyncMock(
-                side_effect=httpx.TimeoutException("Request timed out")
-            )
+            mock_client.get = AsyncMock(side_effect=httpx.TimeoutException("Request timed out"))
             mock_get_pool.return_value = mock_client
 
             config = MagicMock()
@@ -87,9 +85,7 @@ class TestFetchUrl:
         """Test fetch with request error."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            mock_client.get = AsyncMock(
-                side_effect=httpx.RequestError("Connection failed")
-            )
+            mock_client.get = AsyncMock(side_effect=httpx.RequestError("Connection failed"))
             mock_get_pool.return_value = mock_client
 
             config = MagicMock()
@@ -140,9 +136,7 @@ class TestFetchUrl:
         """Test fetch with connection error."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            mock_client.get = AsyncMock(
-                side_effect=httpx.RequestError("Connection refused")
-            )
+            mock_client.get = AsyncMock(side_effect=httpx.RequestError("Connection refused"))
             mock_get_pool.return_value = mock_client
 
             config = MagicMock()
@@ -178,8 +172,7 @@ class TestRetryLogic:
     @pytest.mark.asyncio
     async def test_retry_on_connection_error(self):
         """Test that connection errors trigger retries."""
-        from web_mcp.fetcher import RetryableFetchError
-        
+
         mock_response = MagicMock()
         mock_response.text = "<html><body>Test content</body></html>"
         mock_response.raise_for_status = MagicMock()
@@ -188,10 +181,7 @@ class TestRetryLogic:
             # First call raises connection error, second succeeds
             mock_client = MagicMock()
             mock_client.get = AsyncMock(
-                side_effect=[
-                    httpx.ConnectError("Connection refused"),
-                    mock_response
-                ]
+                side_effect=[httpx.ConnectError("Connection refused"), mock_response]
             )
             mock_get_pool.return_value = mock_client
 
@@ -203,7 +193,7 @@ class TestRetryLogic:
 
             # This should succeed after retrying
             result = await fetch_url("https://example.com", config)
-            
+
             # Verify it was called twice (initial + 1 retry)
             assert mock_client.get.call_count == 2
             assert "Test content" in result
@@ -219,10 +209,7 @@ class TestRetryLogic:
             # First call times out, second succeeds
             mock_client = MagicMock()
             mock_client.get = AsyncMock(
-                side_effect=[
-                    httpx.TimeoutException("Request timed out"),
-                    mock_response
-                ]
+                side_effect=[httpx.TimeoutException("Request timed out"), mock_response]
             )
             mock_get_pool.return_value = mock_client
 
@@ -233,7 +220,7 @@ class TestRetryLogic:
             config.cache_ttl = 3600
 
             result = await fetch_url("https://example.com", config)
-            
+
             # Verify it was called twice
             assert mock_client.get.call_count == 2
             assert "Test content" in result
@@ -250,8 +237,12 @@ class TestRetryLogic:
             mock_client = MagicMock()
             mock_client.get = AsyncMock(
                 side_effect=[
-                    httpx.HTTPStatusError("500 Internal Server Error", request=MagicMock(), response=MagicMock(status_code=500)),
-                    mock_response
+                    httpx.HTTPStatusError(
+                        "500 Internal Server Error",
+                        request=MagicMock(),
+                        response=MagicMock(status_code=500),
+                    ),
+                    mock_response,
                 ]
             )
             mock_get_pool.return_value = mock_client
@@ -262,8 +253,8 @@ class TestRetryLogic:
             config.user_agent = "TestAgent/1.0"
             config.cache_ttl = 3600
 
-            result = await fetch_url("https://example.com", config)
-            
+            await fetch_url("https://example.com", config)
+
             # Verify it was called twice
             assert mock_client.get.call_count == 2
 
@@ -279,8 +270,12 @@ class TestRetryLogic:
             mock_client = MagicMock()
             mock_client.get = AsyncMock(
                 side_effect=[
-                    httpx.HTTPStatusError("429 Too Many Requests", request=MagicMock(), response=MagicMock(status_code=429)),
-                    mock_response
+                    httpx.HTTPStatusError(
+                        "429 Too Many Requests",
+                        request=MagicMock(),
+                        response=MagicMock(status_code=429),
+                    ),
+                    mock_response,
                 ]
             )
             mock_get_pool.return_value = mock_client
@@ -291,8 +286,8 @@ class TestRetryLogic:
             config.user_agent = "TestAgent/1.0"
             config.cache_ttl = 3600
 
-            result = await fetch_url("https://example.com", config)
-            
+            await fetch_url("https://example.com", config)
+
             # Verify it was called twice
             assert mock_client.get.call_count == 2
 
@@ -303,7 +298,9 @@ class TestRetryLogic:
             mock_client = MagicMock()
             # Return 404 immediately
             mock_client.get = AsyncMock(
-                side_effect=httpx.HTTPStatusError("404 Not Found", request=MagicMock(), response=MagicMock(status_code=404))
+                side_effect=httpx.HTTPStatusError(
+                    "404 Not Found", request=MagicMock(), response=MagicMock(status_code=404)
+                )
             )
             mock_get_pool.return_value = mock_client
 
@@ -315,7 +312,7 @@ class TestRetryLogic:
 
             with pytest.raises(FetchError) as exc_info:
                 await fetch_url("https://example.com", config)
-            
+
             # Verify it was called only once (no retry)
             assert mock_client.get.call_count == 1
             assert "HTTP error 404" in str(exc_info.value)
@@ -326,7 +323,9 @@ class TestRetryLogic:
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
             mock_client.get = AsyncMock(
-                side_effect=httpx.HTTPStatusError("403 Forbidden", request=MagicMock(), response=MagicMock(status_code=403))
+                side_effect=httpx.HTTPStatusError(
+                    "403 Forbidden", request=MagicMock(), response=MagicMock(status_code=403)
+                )
             )
             mock_get_pool.return_value = mock_client
 
@@ -338,7 +337,7 @@ class TestRetryLogic:
 
             with pytest.raises(FetchError) as exc_info:
                 await fetch_url("https://example.com", config)
-            
+
             # Verify it was called only once (no retry)
             assert mock_client.get.call_count == 1
             assert "HTTP error 403" in str(exc_info.value)
@@ -352,16 +351,16 @@ class TestResponseSizeLimiting:
         """Test that responses exceeding max_content_length are blocked."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            
+
             # Create a response that exceeds the limit
             mock_response = MagicMock()
             mock_response.headers = {"content-length": "1000"}  # Header says 1000 bytes
             mock_response.status_code = 200
-            
+
             # Stream content that exceeds limit
             async def mock_aiter_text():
                 yield "a" * 10000  # More than max_content_length
-            
+
             mock_response.aiter_text = mock_aiter_text
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_get_pool.return_value = mock_client
@@ -374,7 +373,7 @@ class TestResponseSizeLimiting:
 
             with pytest.raises(ContentLengthExceededError) as exc_info:
                 await fetch_url("https://example.com", config)
-            
+
             assert "exceeds maximum allowed" in str(exc_info.value)
 
     @pytest.mark.asyncio
@@ -382,15 +381,15 @@ class TestResponseSizeLimiting:
         """Test that responses within max_content_length are allowed."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            
+
             mock_response = MagicMock()
             mock_response.headers = {"content-length": "100"}  # Header says 100 bytes
             mock_response.text = "<html><body>Test</body></html>"
             mock_response.raise_for_status = MagicMock()
-            
+
             async def mock_aiter_text():
                 yield "<html><body>Test</body></html>"  # Less than limit
-            
+
             mock_response.aiter_text = mock_aiter_text
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_get_pool.return_value = mock_client
@@ -402,7 +401,7 @@ class TestResponseSizeLimiting:
             config.cache_ttl = 3600
 
             result = await fetch_url("https://example.com", config)
-            
+
             assert "Test" in result
 
 
@@ -414,14 +413,14 @@ class TestUserAgentHeader:
         """Test that custom User-Agent header is sent with requests."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            
+
             mock_response = MagicMock()
             mock_response.text = "<html><body>Test</body></html>"
             mock_response.raise_for_status = MagicMock()
-            
+
             async def mock_aiter_text():
                 yield "<html><body>Test</body></html>"
-            
+
             mock_response.aiter_text = mock_aiter_text
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_get_pool.return_value = mock_client
@@ -433,26 +432,28 @@ class TestUserAgentHeader:
             config.cache_ttl = 3600
 
             await fetch_url("https://example.com", config)
-            
+
             # Verify the request was made with the custom User-Agent
             mock_client.get.assert_called_once()
             call_kwargs = mock_client.get.call_args[1]
             assert "headers" in call_kwargs
-            assert call_kwargs["headers"]["User-Agent"] == "CustomBot/2.0 (+https://example.com/bot)"
+            assert (
+                call_kwargs["headers"]["User-Agent"] == "CustomBot/2.0 (+https://example.com/bot)"
+            )
 
     @pytest.mark.asyncio
     async def test_user_agent_configurable_via_config(self):
         """Test that User-Agent is configurable via config object."""
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
-            
+
             mock_response = MagicMock()
             mock_response.text = "<html><body>Test</body></html>"
             mock_response.raise_for_status = MagicMock()
-            
+
             async def mock_aiter_text():
                 yield "<html><body>Test</body></html>"
-            
+
             mock_response.aiter_text = mock_aiter_text
             mock_client.get = AsyncMock(return_value=mock_response)
             mock_get_pool.return_value = mock_client
@@ -465,6 +466,9 @@ class TestUserAgentHeader:
             config.cache_ttl = 3600
 
             await fetch_url("https://example.com", config)
-            
+
             call_kwargs = mock_client.get.call_args[1]
-            assert call_kwargs["headers"]["User-Agent"] == "WebMCP/1.0 (+https://github.com/yourorg/web-mcp)"
+            assert (
+                call_kwargs["headers"]["User-Agent"]
+                == "WebMCP/1.0 (+https://github.com/yourorg/web-mcp)"
+            )

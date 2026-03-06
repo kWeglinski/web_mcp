@@ -1,7 +1,8 @@
 """LLM client for OpenAI-compatible APIs."""
 
 import json
-from typing import Any, AsyncIterator, List, Optional
+from collections.abc import AsyncIterator
+
 import httpx
 
 from web_mcp.llm.config import get_llm_config
@@ -9,6 +10,7 @@ from web_mcp.llm.config import get_llm_config
 
 class LLMError(Exception):
     """Error from LLM operations."""
+
     pass
 
 
@@ -17,7 +19,7 @@ class LLMClient:
 
     def __init__(self):
         self._config = get_llm_config()
-        self._client: Optional[httpx.AsyncClient] = None
+        self._client: httpx.AsyncClient | None = None
 
     async def _get_client(self) -> httpx.AsyncClient:
         if self._client is None:
@@ -30,7 +32,7 @@ class LLMClient:
                 headers={
                     "Authorization": f"Bearer {self._config.api_key}",
                     "Content-Type": "application/json",
-                }
+                },
             )
         return self._client
 
@@ -39,63 +41,63 @@ class LLMClient:
             await self._client.aclose()
             self._client = None
 
-    async def embed(self, texts: List[str]) -> List[List[float]]:
+    async def embed(self, texts: list[str]) -> list[list[float]]:
         """Generate embeddings for a list of texts."""
         client = await self._get_client()
-        
+
         payload = {
             "input": texts,
             "model": self._config.embedding_model,
         }
-        
+
         response = await client.post(
             f"{self._config.api_url}/embeddings",
             json=payload,
         )
-        
+
         if response.status_code != 200:
             raise LLMError(f"Embedding failed: {response.status_code} - {response.text}")
-        
+
         data = response.json()
         embeddings = [item["embedding"] for item in data["data"]]
         return embeddings
 
     async def chat(
         self,
-        messages: List[dict],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> str:
         """Generate a chat completion."""
         client = await self._get_client()
-        
+
         payload = {
             "model": self._config.model,
             "messages": messages,
             "max_tokens": max_tokens or self._config.max_tokens,
             "temperature": temperature if temperature is not None else self._config.temperature,
         }
-        
+
         response = await client.post(
             f"{self._config.api_url}/chat/completions",
             json=payload,
         )
-        
+
         if response.status_code != 200:
             raise LLMError(f"Chat failed: {response.status_code} - {response.text}")
-        
+
         data = response.json()
         return data["choices"][0]["message"]["content"]
 
     async def chat_stream(
         self,
-        messages: List[dict],
-        max_tokens: Optional[int] = None,
-        temperature: Optional[float] = None,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
     ) -> AsyncIterator[str]:
         """Stream a chat completion."""
         client = await self._get_client()
-        
+
         payload = {
             "model": self._config.model,
             "messages": messages,
@@ -103,7 +105,7 @@ class LLMClient:
             "temperature": temperature if temperature is not None else self._config.temperature,
             "stream": True,
         }
-        
+
         async with client.stream(
             "POST",
             f"{self._config.api_url}/chat/completions",
@@ -112,7 +114,7 @@ class LLMClient:
             if response.status_code != 200:
                 text = await response.aread()
                 raise LLMError(f"Chat stream failed: {response.status_code} - {text}")
-            
+
             async for line in response.aiter_lines():
                 if line.startswith("data: "):
                     data_str = line[6:]
@@ -128,7 +130,7 @@ class LLMClient:
                         continue
 
 
-_client: Optional[LLMClient] = None
+_client: LLMClient | None = None
 
 
 def get_llm_client() -> LLMClient:

@@ -1,44 +1,70 @@
-# Python
-__pycache__
+# Python artifacts
+__pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
-ENV/
-.venv
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Virtual environments
 .venv
 venv/
+ENV/
+env/
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
 # Git
 .git/
 .gitignore
+.gitattributes
 
-# Testing
-.pytest_cache/
-.coverage
-htmlcov/
+# CI/CD
+.github/
+.travis.yml
+.gitlab-ci.yml
 
-# Build artifacts
-dist/
-build/
-*.egg-info/
-
-# Documentation (keep README.md for pyproject.toml)
+# Documentation
 docs/
+plans/
+*.md
+!README.md
 
-# Docker
+# Other
+.DS_Store
+.dockerignore
 Dockerfile
 docker-compose.yml
-
-# Logs
+.env*
 *.log
+*.tmp
+.python-version
+uv.lock

@@ -2,7 +2,6 @@
 
 import logging
 import os
-from typing import Optional
 
 # Log format: timestamp | level | module | message
 LOG_FORMAT = "%(asctime)s | %(levelname)s | %(name)s | %(message)s"
@@ -12,24 +11,24 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 DEFAULT_LOG_LEVEL = "INFO"
 
 
-def setup_logging(log_level: Optional[str] = None) -> None:
+def setup_logging(log_level: str | None = None) -> None:
     """Set up logging configuration.
-    
+
     Args:
         log_level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
                    Defaults to WEB_MCP_LOG_LEVEL env var or INFO.
     """
     if log_level is None:
         log_level = os.environ.get("WEB_MCP_LOG_LEVEL", DEFAULT_LOG_LEVEL)
-    
+
     # Convert to uppercase
     log_level = log_level.upper()
-    
+
     # Validate log level
     valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
     if log_level not in valid_levels:
         log_level = "INFO"
-    
+
     # Configure logging
     logging.basicConfig(
         level=getattr(logging, log_level),
@@ -40,10 +39,10 @@ def setup_logging(log_level: Optional[str] = None) -> None:
 
 def get_logger(name: str) -> logging.Logger:
     """Get a logger instance.
-    
+
     Args:
         name: Logger name (usually __name__)
-        
+
     Returns:
         Configured logger instance
     """
@@ -52,7 +51,7 @@ def get_logger(name: str) -> logging.Logger:
 
 def get_health_metrics() -> dict:
     """Get health metrics for the /health endpoint.
-    
+
     Returns:
         Dictionary with health metrics
     """

@@ -4,8 +4,8 @@ import pytest
 
 from web_mcp.optimizer import (
     estimate_tokens,
-    truncate_text,
     optimize_content,
+    truncate_text,
 )
 
 
@@ -44,6 +44,7 @@ class TestTruncateText:
     def mock_config(self):
         """Create a mock config."""
         from web_mcp.config import Config
+
         config = Config()
         return config
 
@@ -88,6 +89,7 @@ class TestOptimizeContent:
     def mock_config(self):
         """Create a mock config."""
         from web_mcp.config import Config
+
         config = Config()
         return config
 
@@ -95,7 +97,7 @@ class TestOptimizeContent:
         """Test optimization when no truncation needed."""
         text = "Hello world"
         result = optimize_content(text, 100, mock_config)
-        
+
         assert result["text"] == text
         assert not result["optimization_info"]["truncated"]
         assert result["optimization_info"]["original_tokens"] == 2
@@ -105,14 +107,14 @@ class TestOptimizeContent:
         text = "a" * 500
         mock_config.truncation_strategy = "simple"
         result = optimize_content(text, 10, mock_config)
-        
+
         assert result["optimization_info"]["truncated"] is True
         assert result["optimization_info"]["original_tokens"] == 125
 
     def test_optimize_content_empty(self, mock_config):
         """Test empty string."""
         result = optimize_content("", 100, mock_config)
-        
+
         assert result["text"] == ""
         assert not result["optimization_info"]["truncated"]
 
@@ -120,7 +122,7 @@ class TestOptimizeContent:
         """Test that result has correct keys."""
         text = "Hello world"
         result = optimize_content(text, 100, mock_config)
-        
+
         assert "text" in result
         assert "optimization_info" in result
         assert "original_tokens" in result["optimization_info"]
