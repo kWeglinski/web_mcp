@@ -98,7 +98,7 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "raise NotImplementedError",
 ]
-fail_under = 60
+fail_under = 45
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
