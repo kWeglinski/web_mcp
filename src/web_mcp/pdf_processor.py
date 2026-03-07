@@ -10,6 +10,7 @@ from io import BytesIO
 from time import time
 from typing import Final
 
+import pypdfium2
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, PdfReadError
 
@@ -51,8 +52,25 @@ class PaginatedPDF:
     total_pages: int
 
 
+def _read_pdf_pages_pypdf(pdf_bytes: bytes) -> list[str]:
+    """Read PDF pages using pypdf (fallback extractor)."""
+    try:
+        reader = PdfReader(BytesIO(pdf_bytes))
+        pages: list[str] = []
+        for page in reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                pages.append(_CONTROL_CHARS.sub("", page_text))
+        return pages
+    except (PdfReadError, DependencyError) as e:
+        logger.error("Failed to read PDF with pypdf: %s", e)
+        raise PDFExtractionError(f"Failed to read PDF: {e}") from e
+
+
 def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
     """Read all pages from a PDF and return extracted text.
+
+    Uses pypdfium2 as primary (fastest) with pypdf as fallback.
 
     Args:
         pdf_bytes: PDF content as bytes
@@ -61,20 +79,25 @@ def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
         List of extracted text from each page
 
     Raises:
-        PDFExtractionError: If PDF reading fails
+        PDFExtractionError: If both extractors fail
     """
+    # Try pypdfium2 first (fastest: ~0.003s)
     try:
-        reader = PdfReader(BytesIO(pdf_bytes))
+        pdf = pypdfium2.PdfDocument(pdf_bytes)
         pages: list[str] = []
-        for page in reader.pages:
-            page_text = page.extract_text()
-            if page_text:
-                # Fast: just strip control characters
-                pages.append(_CONTROL_CHARS.sub("", page_text))
-        return pages
-    except (PdfReadError, DependencyError) as e:
-        logger.error("Failed to read PDF: %s", e)
-        raise PDFExtractionError(f"Failed to read PDF: {e}") from e
+        for i in range(len(pdf)):
+            page = pdf[i]
+            text = page.get_textpage().get_text_range()
+            if text:
+                pages.append(_CONTROL_CHARS.sub("", text))
+        pdf.close()
+        if pages:
+            return pages
+    except Exception as e:
+        logger.warning("pypdfium2 failed, falling back to pypdf: %s", e)
+
+    # Fallback to pypdf
+    return _read_pdf_pages_pypdf(pdf_bytes)
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
