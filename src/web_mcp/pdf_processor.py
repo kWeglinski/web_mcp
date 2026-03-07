@@ -32,8 +32,8 @@ logger = get_logger(__name__)
 MAX_PDF_SIZE: Final[int] = 100 * 1024 * 1024  # 100MB
 DEFAULT_CHARS_PER_PAGE: Final[int] = 120_000
 
-# Regex to remove control characters except newline (\n), carriage return (\r), and tab (\t)
-_CONTROL_CHAR_PATTERN = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]")
+# Pre-compiled regex to remove control characters (keep \n, \r, \t)
+_CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]+")
 
 
 class PDFExtractionError(Exception):
@@ -49,33 +49,6 @@ class PaginatedPDF:
     content: str
     current_page: int
     total_pages: int
-
-
-def _clean_text(text: str) -> str:
-    """Remove control characters and normalize whitespace from extracted text.
-
-    Args:
-        text: Raw extracted text from PDF
-
-    Returns:
-        Cleaned text with control characters removed and whitespace normalized
-    """
-    if not text:
-        return ""
-
-    # Remove control characters (keep \n, \r, \t)
-    cleaned = _CONTROL_CHAR_PATTERN.sub("", text)
-
-    # Normalize multiple spaces to single space (preserve newlines)
-    cleaned = re.sub(r"[^\S\n]+", " ", cleaned)
-
-    # Remove leading/trailing whitespace from each line
-    cleaned = "\n".join(line.strip() for line in cleaned.split("\n"))
-
-    # Remove multiple consecutive blank lines
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-
-    return cleaned.strip()
 
 
 def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
@@ -96,9 +69,8 @@ def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
-                cleaned = _clean_text(page_text)
-                if cleaned:
-                    pages.append(cleaned)
+                # Fast: just strip control characters
+                pages.append(_CONTROL_CHARS.sub("", page_text))
         return pages
     except (PdfReadError, DependencyError) as e:
         logger.error("Failed to read PDF: %s", e)
