@@ -14,6 +14,7 @@ import pypdfium2
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, PdfReadError
 
+from web_mcp.config import get_config
 from web_mcp.logging import get_logger
 
 __all__ = [
@@ -25,13 +26,11 @@ __all__ = [
     "is_pdf_content_type",
     "paginate_markdown",
     "MAX_PDF_SIZE",
-    "DEFAULT_CHARS_PER_PAGE",
 ]
 
 logger = get_logger(__name__)
 
 MAX_PDF_SIZE: Final[int] = 100 * 1024 * 1024  # 100MB
-DEFAULT_CHARS_PER_PAGE: Final[int] = 120_000
 
 # Pre-compiled regex to remove control characters (keep \n, \r, \t)
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f]+")
@@ -162,14 +161,14 @@ def is_pdf_content_type(content_type: str) -> bool:
 
 
 def paginate_markdown(
-    markdown_text: str, page: int = 0, chars_per_page: int = DEFAULT_CHARS_PER_PAGE
+    markdown_text: str, page: int = 0, chars_per_page: int | None = None
 ) -> PaginatedPDF:
     """Split markdown text into paginated chunks.
 
     Args:
         markdown_text: The markdown text to paginate
         page: The page number to return (0-indexed)
-        chars_per_page: Target characters per page (default 120k = ~30k tokens)
+        chars_per_page: Target characters per page (default from config, ~15k tokens)
 
     Returns:
         PaginatedPDF with content, current_page, and total_pages
@@ -179,6 +178,9 @@ def paginate_markdown(
     """
     if page < 0:
         raise ValueError(f"Page must be >= 0, got {page}")
+
+    if chars_per_page is None:
+        chars_per_page = get_config().pdf_chars_per_page
 
     if not markdown_text:
         return PaginatedPDF(content="", current_page=0, total_pages=1)

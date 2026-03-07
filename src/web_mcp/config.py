@@ -21,6 +21,8 @@ ENV_PLAYWRIGHT_FALLBACK_THRESHOLD = "WEB_MCP_PLAYWRIGHT_FALLBACK_THRESHOLD"
 ENV_PUBLIC_URL = "WEB_MCP_PUBLIC_URL"
 ENV_AUTH_TOKEN = "WEB_MCP_AUTH_TOKEN"
 ENV_CONTENT_TTL = "WEB_MCP_CONTENT_TTL"
+# PDF settings
+ENV_PDF_CHARS_PER_PAGE = "WEB_MCP_PDF_CHARS_PER_PAGE"
 
 # JavaScript execution settings
 ENV_JS_FETCH_MAX_RESPONSE_SIZE = "WEB_MCP_JS_FETCH_MAX_RESPONSE_SIZE"
@@ -130,6 +132,11 @@ class Config:
                 self.content_ttl = self._validate_int(content_ttl_str, 60, 86400)
         except (ValueError, TypeError):
             raise ValueError(f"Invalid content_ttl value: {content_ttl_str}")
+
+        # PDF settings
+        self.pdf_chars_per_page: int = self._validate_int(
+            os.environ.get(ENV_PDF_CHARS_PER_PAGE, "60000"), 10000, 500000
+        )
 
         # JavaScript execution settings
         self.js_fetch_max_response_size: int = self._validate_int(
