@@ -1,7 +1,6 @@
 """URL fetching module for web browsing."""
 
 from dataclasses import dataclass
-from typing import cast
 
 import httpx
 
