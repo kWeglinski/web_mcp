@@ -86,9 +86,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
     """
     if len(pdf_bytes) > MAX_PDF_SIZE:
         logger.error("PDF exceeds size limit: %d bytes", len(pdf_bytes))
-        raise PDFExtractionError(
-            f"PDF exceeds maximum size limit of {MAX_PDF_SIZE} bytes"
-        )
+        raise PDFExtractionError(f"PDF exceeds maximum size limit of {MAX_PDF_SIZE} bytes")
 
     pages = _read_pdf_pages(pdf_bytes)
     return "\n\n".join(pages)
@@ -109,9 +107,7 @@ def pdf_to_markdown(pdf_bytes: bytes, url: str) -> str:
     """
     if len(pdf_bytes) > MAX_PDF_SIZE:
         logger.error("PDF exceeds size limit: %d bytes", len(pdf_bytes))
-        raise PDFExtractionError(
-            f"PDF exceeds maximum size limit of {MAX_PDF_SIZE} bytes"
-        )
+        raise PDFExtractionError(f"PDF exceeds maximum size limit of {MAX_PDF_SIZE} bytes")
 
     pages = _read_pdf_pages(pdf_bytes)
     markdown_parts = [f"# PDF: {url}\n"]

@@ -381,9 +381,7 @@ async def get_page(
         if not extracted.text or not extracted.text.strip():
             return "No content extracted from page"
 
-        ranked_result = _rank_chunks_with_bm25(
-            extracted.text, url, extracted.title or url, query
-        )
+        ranked_result = _rank_chunks_with_bm25(extracted.text, url, extracted.title or url, query)
 
         header = f"Title: {extracted.title}\n\n" if extracted.title else ""
         return header + ranked_result
