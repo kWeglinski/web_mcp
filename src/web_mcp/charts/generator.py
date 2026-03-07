@@ -56,7 +56,11 @@ def _create_line_chart(config: ChartConfig) -> go.Figure:
     fig = go.Figure()
     if isinstance(y[0], list) if y else False:
         for i, y_series in enumerate(y):
-            name = data.get("names", [f"Series {i+1}"])[i] if data.get("names") else f"Series {i+1}"
+            name = (
+                data.get("names", [f"Series {i + 1}"])[i]
+                if data.get("names")
+                else f"Series {i + 1}"
+            )
             fig.add_trace(go.Scatter(x=x, y=y_series, mode="lines+markers", name=name))
     else:
         fig.add_trace(go.Scatter(x=x, y=y, mode="lines+markers"))
@@ -70,7 +74,11 @@ def _create_bar_chart(config: ChartConfig) -> go.Figure:
     fig = go.Figure()
     if y and isinstance(y[0], list):
         for i, y_series in enumerate(y):
-            name = data.get("names", [f"Series {i+1}"])[i] if data.get("names") else f"Series {i+1}"
+            name = (
+                data.get("names", [f"Series {i + 1}"])[i]
+                if data.get("names")
+                else f"Series {i + 1}"
+            )
             fig.add_trace(go.Bar(x=x, y=y_series, name=name))
     else:
         fig.add_trace(go.Bar(x=x, y=y))
@@ -84,7 +92,11 @@ def _create_scatter_chart(config: ChartConfig) -> go.Figure:
     fig = go.Figure()
     if y and isinstance(y[0], list):
         for i, y_series in enumerate(y):
-            name = data.get("names", [f"Series {i+1}"])[i] if data.get("names") else f"Series {i+1}"
+            name = (
+                data.get("names", [f"Series {i + 1}"])[i]
+                if data.get("names")
+                else f"Series {i + 1}"
+            )
             x_series = x[i] if isinstance(x[0], list) else x
             fig.add_trace(go.Scatter(x=x_series, y=y_series, mode="markers", name=name))
     else:
@@ -107,7 +119,11 @@ def _create_area_chart(config: ChartConfig) -> go.Figure:
     fig = go.Figure()
     if y and isinstance(y[0], list):
         for i, y_series in enumerate(y):
-            name = data.get("names", [f"Series {i+1}"])[i] if data.get("names") else f"Series {i+1}"
+            name = (
+                data.get("names", [f"Series {i + 1}"])[i]
+                if data.get("names")
+                else f"Series {i + 1}"
+            )
             fig.add_trace(go.Scatter(x=x, y=y_series, mode="lines", stackgroup="one", name=name))
     else:
         fig.add_trace(go.Scatter(x=x, y=y, mode="lines", stackgroup="one"))
@@ -128,11 +144,15 @@ def _create_box_chart(config: ChartConfig) -> go.Figure:
     fig = go.Figure()
     if x and isinstance(x[0], list):
         for i, x_series in enumerate(x):
-            name = data.get("names", [f"Group {i+1}"])[i] if data.get("names") else f"Group {i+1}"
+            name = (
+                data.get("names", [f"Group {i + 1}"])[i] if data.get("names") else f"Group {i + 1}"
+            )
             fig.add_trace(go.Box(y=x_series, name=name))
     elif isinstance(y[0], list) if y else False:
         for i, y_series in enumerate(y):
-            name = data.get("names", [f"Group {i+1}"])[i] if data.get("names") else f"Group {i+1}"
+            name = (
+                data.get("names", [f"Group {i + 1}"])[i] if data.get("names") else f"Group {i + 1}"
+            )
             fig.add_trace(go.Box(y=y_series, name=name))
     else:
         fig.add_trace(go.Box(y=y))

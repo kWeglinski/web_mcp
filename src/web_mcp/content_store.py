@@ -56,11 +56,14 @@ class ContentStore:
         token = self._generate_token()
         now = time.time()
 
+        # TTL of 0 means endless (never expire)
+        expires_at = float("inf") if ttl == 0 else now + ttl
+
         stored = StoredContent(
             content=content,
             content_type=content_type,
             created_at=now,
-            expires_at=now + ttl,
+            expires_at=expires_at,
             token=token,
         )
 

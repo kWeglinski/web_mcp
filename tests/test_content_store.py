@@ -547,13 +547,14 @@ class TestEdgeCases:
         assert result.content_type == "application/json; charset=utf-8"
 
     def test_store_zero_ttl(self, store):
-        """Test storing with zero TTL (expires immediately)."""
+        """Test storing with zero TTL (never expires)."""
         content_id, token = store.store("content", ttl=0.0)
 
         time.sleep(0.01)
 
         result = store.get(content_id)
-        assert result is None
+        assert result is not None
+        assert result.expires_at == float("inf")
 
     def test_store_negative_ttl(self, store):
         """Test storing with negative TTL (already expired)."""

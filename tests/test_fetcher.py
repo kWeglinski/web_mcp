@@ -17,6 +17,12 @@ class TestFetchUrl:
         mock_response = MagicMock()
         mock_response.text = "<html><body>Test content</body></html>"
         mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {}
+
+        async def mock_aiter_text():
+            yield "<html><body>Test content</body></html>"
+
+        mock_response.aiter_text = mock_aiter_text
 
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
@@ -115,6 +121,12 @@ class TestFetchUrl:
         mock_response = MagicMock()
         mock_response.text = "<html><body>Test</body></html>"
         mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {}
+
+        async def mock_aiter_text():
+            yield "<html><body>Test</body></html>"
+
+        mock_response.aiter_text = mock_aiter_text
 
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             mock_client = MagicMock()
@@ -176,6 +188,12 @@ class TestRetryLogic:
         mock_response = MagicMock()
         mock_response.text = "<html><body>Test content</body></html>"
         mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {}
+
+        async def mock_aiter_text():
+            yield "<html><body>Test content</body></html>"
+
+        mock_response.aiter_text = mock_aiter_text
 
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             # First call raises connection error, second succeeds
@@ -204,6 +222,12 @@ class TestRetryLogic:
         mock_response = MagicMock()
         mock_response.text = "<html><body>Test content</body></html>"
         mock_response.raise_for_status = MagicMock()
+        mock_response.headers = {}
+
+        async def mock_aiter_text():
+            yield "<html><body>Test content</body></html>"
+
+        mock_response.aiter_text = mock_aiter_text
 
         with patch("web_mcp.fetcher.get_connection_pool") as mock_get_pool:
             # First call times out, second succeeds

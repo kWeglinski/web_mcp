@@ -120,9 +120,16 @@ class Config:
 
         self.auth_token: str | None = os.environ.get(ENV_AUTH_TOKEN, None)
 
-        self.content_ttl: int = self._validate_int(
-            os.environ.get(ENV_CONTENT_TTL, "3600"), 60, 86400
-        )
+        # Content TTL: 0 means endless (never expire), otherwise 60-86400 seconds
+        content_ttl_str = os.environ.get(ENV_CONTENT_TTL, "3600") or "3600"
+        try:
+            content_ttl_val = int(content_ttl_str)
+            if content_ttl_val == 0:
+                self.content_ttl: int = 0
+            else:
+                self.content_ttl = self._validate_int(content_ttl_str, 60, 86400)
+        except (ValueError, TypeError):
+            raise ValueError(f"Invalid content_ttl value: {content_ttl_str}")
 
         # JavaScript execution settings
         self.js_fetch_max_response_size: int = self._validate_int(
@@ -132,7 +139,9 @@ class Config:
         )
 
         self.js_fetch_max_requests: int = self._validate_int(
-            os.environ.get(ENV_JS_FETCH_MAX_REQUESTS, "10"), 1, 100  # max 10 fetches per execution
+            os.environ.get(ENV_JS_FETCH_MAX_REQUESTS, "10"),
+            1,
+            100,  # max 10 fetches per execution
         )
 
         self.js_fetch_max_total_bytes: int = self._validate_int(
@@ -142,7 +151,9 @@ class Config:
         )
 
         self.js_fetch_timeout: int = self._validate_int(
-            os.environ.get(ENV_JS_FETCH_TIMEOUT, "10000"), 1000, 60000  # 10s default per fetch
+            os.environ.get(ENV_JS_FETCH_TIMEOUT, "10000"),
+            1000,
+            60000,  # 10s default per fetch
         )
 
         self.js_fetch_verify_ssl: bool = os.environ.get(
