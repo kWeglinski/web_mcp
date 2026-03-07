@@ -16,6 +16,7 @@ dependencies = [
     "trafilatura>=2.0.0",
     "uvicorn>=0.34.0",
     "numpy>=1.26.0",
+    "pdfplumber>=0.11.0",
     "pypdf>=4.0.0",
 ]
 
