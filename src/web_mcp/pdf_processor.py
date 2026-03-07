@@ -10,7 +10,6 @@ from io import BytesIO
 from time import time
 from typing import Final
 
-import pdfplumber
 from pypdf import PdfReader
 from pypdf.errors import DependencyError, PdfReadError
 
@@ -79,28 +78,8 @@ def _clean_text(text: str) -> str:
     return cleaned.strip()
 
 
-def _is_text_garbled(text: str, threshold: float = 0.4) -> bool:
-    """Detect if extracted text appears garbled due to font encoding issues.
-
-    Args:
-        text: Extracted text to analyze
-        threshold: Minimum ratio of alphabetic/whitespace chars (default 0.4)
-
-    Returns:
-        True if text appears garbled, False otherwise
-    """
-    if not text:
-        return True
-
-    # Count alphabetic characters and whitespace
-    alpha_count = sum(c.isalpha() or c.isspace() for c in text)
-    ratio = alpha_count / len(text)
-
-    return ratio < threshold
-
-
-def _read_pdf_pages_pypdf(pdf_bytes: bytes) -> list[str]:
-    """Read PDF pages using pypdf (fallback extractor).
+def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
+    """Read all pages from a PDF and return extracted text.
 
     Args:
         pdf_bytes: PDF content as bytes
@@ -117,55 +96,13 @@ def _read_pdf_pages_pypdf(pdf_bytes: bytes) -> list[str]:
         for page in reader.pages:
             page_text = page.extract_text()
             if page_text:
-                pages.append(_clean_text(page_text))
+                cleaned = _clean_text(page_text)
+                if cleaned:
+                    pages.append(cleaned)
         return pages
     except (PdfReadError, DependencyError) as e:
-        logger.error("Failed to read PDF with pypdf: %s", e)
+        logger.error("Failed to read PDF: %s", e)
         raise PDFExtractionError(f"Failed to read PDF: {e}") from e
-
-
-def _read_pdf_pages(pdf_bytes: bytes) -> list[str]:
-    """Read all pages from a PDF and return extracted text.
-
-    Uses pdfplumber as primary extractor with pypdf as fallback.
-    Applies text cleaning to remove control characters and normalize whitespace.
-
-    Args:
-        pdf_bytes: PDF content as bytes
-
-    Returns:
-        List of extracted text from each page
-
-    Raises:
-        PDFExtractionError: If both extractors fail
-    """
-    pages: list[str] = []
-
-    # Try pdfplumber first (better font handling)
-    try:
-        with pdfplumber.open(BytesIO(pdf_bytes)) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    cleaned = _clean_text(page_text)
-                    if cleaned:
-                        pages.append(cleaned)
-
-        # Check if extracted text is garbled
-        all_text = "\n".join(pages)
-        if pages and not _is_text_garbled(all_text):
-            logger.debug("Successfully extracted %d pages with pdfplumber", len(pages))
-            return pages
-
-        # If garbled, try pypdf as fallback
-        if pages:
-            logger.warning("pdfplumber produced garbled text, trying pypdf fallback")
-
-    except Exception as e:
-        logger.warning("pdfplumber failed, falling back to pypdf: %s", e)
-
-    # Fallback to pypdf
-    return _read_pdf_pages_pypdf(pdf_bytes)
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
