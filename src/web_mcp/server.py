@@ -366,9 +366,26 @@ async def get_page(
             return _rank_chunks_with_bm25(markdown_text, url, "PDF Document", query)
 
         paginated = paginate_markdown(markdown_text, page=page)
-        return (
-            f"{paginated.content}\n\n----- page {paginated.current_page} of {paginated.total_pages}"
-        )
+        current = paginated.current_page
+        total = paginated.total_pages
+        content = paginated.content
+
+        if total == 1:
+            return content
+
+        next_page = current + 1
+
+        if current == 0:
+            header = f"[📄 CHUNK {current}/{total} - This PDF is split into {total} chunks due to size.]\n[To get more content, call: get_page(url, page=1), get_page(url, page=2), etc.]\n\n"
+            footer = f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+        elif current == total - 1:
+            header = f"[📄 CHUNK {current}/{total} - Final chunk]\n\n"
+            footer = f"\n\n---\nEnd of chunk {current}/{total} (final)."
+        else:
+            header = f"[📄 CHUNK {current}/{total}]\n\n"
+            footer = f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+
+        return f"{header}{content}{footer}"
 
     html = fetched.content.decode("utf-8", errors="replace")
 

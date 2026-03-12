@@ -2,9 +2,19 @@
 
 import os
 import re
+import time
 from datetime import datetime
+from typing import Any
 
 import httpx
+
+INSTANCES_URL = "https://searx.space/data/instances.json"
+INSTANCES_CACHE_TTL = 3600
+BLACKLIST_TTL = 300
+MAX_RETRIES = 3
+
+_instances_cache: tuple[float, list[str]] = (0, [])
+_blacklist: dict[str, float] = {}
 
 
 def remove_html_tags(text: str | None) -> str:
@@ -113,8 +123,77 @@ def get_searxng_url() -> str | None:
     return os.environ.get("WEB_MCP_SEARXNG_URL", None)
 
 
+def _is_blacklisted(url: str) -> bool:
+    """Check if URL is currently blacklisted."""
+    if url in _blacklist:
+        if time.time() - _blacklist[url] < BLACKLIST_TTL:
+            return True
+        del _blacklist[url]
+    return False
+
+
+def _blacklist_instance(url: str) -> None:
+    """Add instance to temporary blacklist."""
+    _blacklist[url] = time.time()
+
+
+async def _fetch_public_instances() -> list[str]:
+    """Fetch and cache public SearXNG instances from searx.space."""
+    global _instances_cache
+
+    if time.time() - _instances_cache[0] < INSTANCES_CACHE_TTL:
+        return _instances_cache[1]
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(INSTANCES_URL, timeout=10)
+            response.raise_for_status()
+            data = response.json()
+
+            instances = []
+            for url, info in data.get("instances", {}).items():
+                if info.get("version") and not info.get("error"):
+                    timing = info.get("timing", {}).get("initial", {})
+                    if timing and timing.get("success_percentage", 0) >= 80:
+                        instances.append(url.rstrip("/"))
+
+            instances.sort(
+                key=lambda u: (
+                    data.get("instances", {})
+                    .get(u + "/" if not u.endswith("/") else u, {})
+                    .get("timing", {})
+                    .get("initial", {})
+                    .get("median", float("inf"))
+                )
+            )
+
+            _instances_cache = (time.time(), instances[:20])
+            return _instances_cache[1]
+
+    except Exception:
+        return _instances_cache[1] if _instances_cache[1] else []
+
+
+async def _get_fallback_instances() -> list[str]:
+    """Get available fallback instances, excluding blacklisted ones."""
+    instances = await _fetch_public_instances()
+    return [u for u in instances if not _is_blacklisted(u)]
+
+
+def _is_failure_response(data: dict | None, status_code: int) -> bool:
+    """Check if response indicates a failure (rate limit, captcha, etc.)."""
+    if status_code == 429:
+        return True
+    if data is None:
+        return True
+    results = data.get("results", [])
+    if not results:
+        return True
+    return False
+
+
 async def search(query: str, max_results: int = 10) -> list[dict]:
-    """Search using SearXNG.
+    """Search using SearXNG with automatic fallback to public instances.
 
     Args:
         query: The search query string
@@ -124,22 +203,44 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
         List of search result dictionaries with title, url, and snippet
 
     Raises:
-        SearXNGError: If the search fails or SearXNG is not configured
+        SearXNGError: If all search attempts fail
     """
-    searxng_url = get_searxng_url()
+    configured_url = get_searxng_url()
 
-    if not searxng_url:
-        raise SearXNGError(
-            "SearXNG is not configured. Set WEB_MCP_SEARXNG_URL environment variable."
-        )
+    instances_to_try = []
+    if configured_url:
+        instances_to_try.append(configured_url.rstrip("/"))
 
-    # Clean up the URL - ensure it doesn't have a trailing slash
-    searxng_url = searxng_url.rstrip("/")
+    fallbacks = await _get_fallback_instances()
+    for url in fallbacks:
+        if url not in instances_to_try:
+            instances_to_try.append(url)
 
-    # Build the search URL
-    # SearXNG API endpoint is typically /search
-    search_url = f"{searxng_url}/search"
+    if not instances_to_try:
+        raise SearXNGError("SearXNG is not configured and no public instances available.")
 
+    last_error: str = ""
+    attempts = 0
+
+    for instance_url in instances_to_try[: MAX_RETRIES + 1]:
+        if _is_blacklisted(instance_url):
+            continue
+
+        attempts += 1
+        try:
+            result = await _search_instance(instance_url, query, max_results)
+            return result
+        except SearXNGError as e:
+            last_error = e.message
+            _blacklist_instance(instance_url)
+            continue
+
+    raise SearXNGError(f"All search attempts failed. Last error: {last_error}")
+
+
+async def _search_instance(instance_url: str, query: str, max_results: int) -> list[dict]:
+    """Execute search against a single SearXNG instance."""
+    search_url = f"{instance_url}/search"
     timeout = 30
 
     try:
@@ -151,14 +252,18 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
                 "num_results": max_results,
             }
             response = await client.get(search_url, params=params, timeout=timeout)
+
+            if response.status_code == 429:
+                raise SearXNGError("Rate limited")
+
             response.raise_for_status()
 
             data = response.json()
-
-            # SearXNG returns results in the 'results' key
             results = data.get("results", [])
 
-            # Parse and format results
+            if not results:
+                raise SearXNGError("No results returned")
+
             formatted_results = []
             for result in results:
                 formatted_result = {
@@ -167,7 +272,6 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
                     "snippet": result.get("content", result.get("snippet", "")),
                 }
 
-                # Add optional fields if available
                 if "publishedDate" in result:
                     formatted_result["published_date"] = result["publishedDate"]
                 if "score" in result:
@@ -177,6 +281,8 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
 
             return formatted_results
 
+    except SearXNGError:
+        raise
     except httpx.TimeoutException as e:
         raise SearXNGError(f"Request timed out: {e}")
     except httpx.HTTPStatusError as e:

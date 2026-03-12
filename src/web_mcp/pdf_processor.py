@@ -140,7 +140,7 @@ def pdf_to_markdown(pdf_bytes: bytes, url: str) -> str:
     markdown_parts = [f"# PDF: {url}\n"]
 
     for i, page_text in enumerate(pages, start=1):
-        markdown_parts.append(f"\n## Page {i}\n\n{page_text}")
+        markdown_parts.append(f"\n## PDF Page {i}\n\n{page_text}")
 
     return "\n".join(markdown_parts)
 
