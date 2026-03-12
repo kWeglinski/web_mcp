@@ -1,5 +1,6 @@
 """SearXNG search module for web browsing MCP server."""
 
+import asyncio
 import logging
 import os
 import re
@@ -18,6 +19,8 @@ MAX_RETRIES = 20
 
 _instances_cache: tuple[float, list[str]] = (0, [])
 _blacklist: dict[str, float] = {}
+_search_queue: asyncio.Queue | None = None
+_search_worker_running: bool = False
 
 
 def remove_html_tags(text: str | None) -> str:
@@ -203,6 +206,8 @@ def _is_failure_response(data: dict | None, status_code: int) -> bool:
 async def search(query: str, max_results: int = 10) -> list[dict]:
     """Search using SearXNG with automatic fallback to public instances and DuckDuckGo.
 
+    Requests are queued and executed sequentially to avoid rate limiting.
+
     Args:
         query: The search query string
         max_results: Maximum number of results to return (default: 10)
@@ -213,6 +218,42 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
     Raises:
         SearXNGError: If all search attempts fail
     """
+    global _search_queue
+
+    loop = asyncio.get_event_loop()
+    result_future = loop.create_future()
+
+    if _search_queue is None:
+        _search_queue = asyncio.Queue()
+
+    await _search_queue.put((query, max_results, result_future))
+
+    if _search_queue.qsize() == 1:
+        asyncio.create_task(_process_search_queue())
+
+    return await result_future
+
+
+async def _process_search_queue():
+    """Process queued search requests sequentially."""
+    global _search_queue
+
+    while _search_queue and not _search_queue.empty():
+        query, max_results, result_future = await _search_queue.get()
+
+        try:
+            result = await _search_impl(query, max_results)
+            if not result_future.done():
+                result_future.set_result(result)
+        except Exception as e:
+            if not result_future.done():
+                result_future.set_exception(e)
+        finally:
+            _search_queue.task_done()
+
+
+async def _search_impl(query: str, max_results: int) -> list[dict]:
+    """Internal search implementation."""
     configured_url = get_searxng_url()
 
     instances_to_try = []
