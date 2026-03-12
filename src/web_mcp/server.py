@@ -377,13 +377,17 @@ async def get_page(
 
         if current == 0:
             header = f"[📄 CHUNK {current}/{total} - This PDF is split into {total} chunks due to size.]\n[To get more content, call: get_page(url, page=1), get_page(url, page=2), etc.]\n\n"
-            footer = f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+            footer = (
+                f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+            )
         elif current == total - 1:
             header = f"[📄 CHUNK {current}/{total} - Final chunk]\n\n"
             footer = f"\n\n---\nEnd of chunk {current}/{total} (final)."
         else:
             header = f"[📄 CHUNK {current}/{total}]\n\n"
-            footer = f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+            footer = (
+                f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
+            )
 
         return f"{header}{content}{footer}"
 
