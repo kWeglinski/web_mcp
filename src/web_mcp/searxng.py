@@ -1,5 +1,6 @@
 """SearXNG search module for web browsing MCP server."""
 
+import logging
 import os
 import re
 import time
@@ -8,10 +9,12 @@ from typing import Any
 
 import httpx
 
+logger = logging.getLogger(__name__)
+
 INSTANCES_URL = "https://searx.space/data/instances.json"
 INSTANCES_CACHE_TTL = 3600
 BLACKLIST_TTL = 300
-MAX_RETRIES = 3
+MAX_RETRIES = 20
 
 _instances_cache: tuple[float, list[str]] = (0, [])
 _blacklist: dict[str, float] = {}
@@ -142,6 +145,7 @@ async def _fetch_public_instances() -> list[str]:
     global _instances_cache
 
     if time.time() - _instances_cache[0] < INSTANCES_CACHE_TTL:
+        logger.debug(f"[SearXNG] Using cached instances ({len(_instances_cache[1])} available)")
         return _instances_cache[1]
 
     try:
@@ -168,9 +172,13 @@ async def _fetch_public_instances() -> list[str]:
             )
 
             _instances_cache = (time.time(), instances[:20])
+            logger.info(
+                f"[SearXNG] Fetched {len(_instances_cache[1])} public instances from searx.space"
+            )
             return _instances_cache[1]
 
-    except Exception:
+    except Exception as e:
+        logger.warning(f"[SearXNG] Failed to fetch public instances: {e}")
         return _instances_cache[1] if _instances_cache[1] else []
 
 
@@ -227,11 +235,16 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
             continue
 
         attempts += 1
+        logger.info(f"[SearXNG] Attempt {attempts}: Trying {instance_url}")
         try:
             result = await _search_instance(instance_url, query, max_results)
+            logger.info(
+                f"[SearXNG] Success on attempt {attempts} from {instance_url} - got {len(result)} results"
+            )
             return result
         except SearXNGError as e:
             last_error = e.message
+            logger.warning(f"[SearXNG] Failed attempt {attempts} on {instance_url}: {e.message}")
             _blacklist_instance(instance_url)
             continue
 
