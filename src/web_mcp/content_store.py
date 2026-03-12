@@ -1,9 +1,11 @@
 import asyncio
 import hashlib
+import json
 import secrets
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass
@@ -25,12 +27,25 @@ class ContentStore:
         max_size: int = DEFAULT_MAX_SIZE,
         default_ttl: float = DEFAULT_TTL,
         cleanup_interval: float = DEFAULT_CLEANUP_INTERVAL,
+        storage_path: str | None = None,
     ):
         self.max_size: int = max_size
         self.default_ttl: float = default_ttl
         self.cleanup_interval: float = cleanup_interval
         self._store: OrderedDict[str, StoredContent] = OrderedDict()
         self._cleanup_task: asyncio.Task | None = None
+        self._storage_enabled: bool = False
+
+        if storage_path:
+            self.storage_path: Path | None = Path(storage_path)
+            try:
+                self.storage_path.mkdir(parents=True, exist_ok=True)
+                self._storage_enabled = True
+                self._load_from_disk()
+            except OSError:
+                self.storage_path = None
+        else:
+            self.storage_path = None
 
     def _generate_id(self, content: str | bytes) -> str:
         timestamp = str(time.time())
@@ -42,6 +57,63 @@ class ContentStore:
 
     def _generate_token(self) -> str:
         return secrets.token_urlsafe(32)
+
+    def _get_content_path(self, content_id: str) -> Path | None:
+        if not self.storage_path:
+            return None
+        return self.storage_path / f"{content_id}.json"
+
+    def _save_to_disk(self, content_id: str, stored: StoredContent) -> None:
+        if not self._storage_enabled or not self.storage_path:
+            return
+        content_path = self._get_content_path(content_id)
+        if not content_path:
+            return
+        try:
+            data = {
+                "content": (
+                    stored.content
+                    if isinstance(stored.content, str)
+                    else stored.content.decode("utf-8", errors="replace")
+                ),
+                "content_type": stored.content_type,
+                "created_at": stored.created_at,
+                "expires_at": stored.expires_at,
+                "token": stored.token,
+            }
+            with open(content_path, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+        except OSError:
+            pass
+
+    def _delete_from_disk(self, content_id: str) -> None:
+        if not self.storage_path:
+            return
+        content_path = self._get_content_path(content_id)
+        if content_path and content_path.exists():
+            content_path.unlink()
+
+    def _load_from_disk(self) -> None:
+        if not self.storage_path or not self.storage_path.exists():
+            return
+        now = time.time()
+        for file_path in self.storage_path.glob("*.json"):
+            try:
+                with open(file_path, encoding="utf-8") as f:
+                    data = json.load(f)
+                stored = StoredContent(
+                    content=data["content"],
+                    content_type=data["content_type"],
+                    created_at=data["created_at"],
+                    expires_at=data["expires_at"],
+                    token=data["token"],
+                )
+                if now <= stored.expires_at:
+                    self._store[file_path.stem] = stored
+                else:
+                    file_path.unlink()
+            except (json.JSONDecodeError, KeyError, OSError):
+                file_path.unlink()
 
     def store(
         self,
@@ -70,10 +142,13 @@ class ContentStore:
         if len(self._store) >= self.max_size:
             self._evict_expired()
             if len(self._store) >= self.max_size:
-                self._store.popitem(last=False)
+                evicted_id, _ = self._store.popitem(last=False)
+                self._delete_from_disk(evicted_id)
 
         self._store[content_id] = stored
         self._store.move_to_end(content_id)
+
+        self._save_to_disk(content_id, stored)
 
         return content_id, token
 
@@ -93,6 +168,7 @@ class ContentStore:
     def delete(self, content_id: str) -> bool:
         if content_id in self._store:
             del self._store[content_id]
+            self._delete_from_disk(content_id)
             return True
         return False
 
@@ -104,6 +180,7 @@ class ContentStore:
         expired = [cid for cid, s in self._store.items() if now > s.expires_at]
         for cid in expired:
             del self._store[cid]
+            self._delete_from_disk(cid)
         return len(expired)
 
     def clear(self) -> None:
@@ -144,7 +221,10 @@ def get_content_store() -> ContentStore:
         from web_mcp.config import get_config
 
         config = get_config()
-        _content_store = ContentStore(default_ttl=float(config.content_ttl))
+        _content_store = ContentStore(
+            default_ttl=float(config.content_ttl),
+            storage_path=config.content_storage_path,
+        )
 
     return _content_store
 

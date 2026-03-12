@@ -2,6 +2,7 @@
 
 import asyncio
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -700,3 +701,92 @@ class TestStoredContentFields:
             token="token",
         )
         assert isinstance(bytes_content.content, bytes)
+
+
+class TestPersistence:
+    """Tests for file-based persistence."""
+
+    @pytest.fixture
+    def temp_storage_path(self, tmp_path):
+        """Create a temporary storage path."""
+        return str(tmp_path / "content_store")
+
+    def test_store_saves_to_disk(self, temp_storage_path):
+        """Test that storing content saves to disk."""
+        store = ContentStore(storage_path=temp_storage_path)
+        content_id, _ = store.store("test content", content_type="text/html")
+
+        content_file = Path(temp_storage_path) / f"{content_id}.json"
+        assert content_file.exists()
+
+    def test_load_from_disk_on_init(self, temp_storage_path):
+        """Test that content is loaded from disk on initialization."""
+        store1 = ContentStore(storage_path=temp_storage_path)
+        content_id, token = store1.store("persisted content", content_type="text/html")
+
+        store2 = ContentStore(storage_path=temp_storage_path)
+        result = store2.get(content_id)
+
+        assert result is not None
+        assert result.content == "persisted content"
+        assert result.token == token
+
+    def test_delete_removes_from_disk(self, temp_storage_path):
+        """Test that deleting content removes file from disk."""
+        store = ContentStore(storage_path=temp_storage_path)
+        content_id, _ = store.store("to be deleted")
+
+        content_file = Path(temp_storage_path) / f"{content_id}.json"
+        assert content_file.exists()
+
+        store.delete(content_id)
+        assert not content_file.exists()
+
+    def test_expired_content_removed_from_disk_on_load(self, temp_storage_path):
+        """Test that expired content files are removed on load."""
+        store1 = ContentStore(default_ttl=0.1, storage_path=temp_storage_path)
+        content_id, _ = store1.store("will expire")
+
+        content_file = Path(temp_storage_path) / f"{content_id}.json"
+        assert content_file.exists()
+
+        time.sleep(0.2)
+
+        store2 = ContentStore(storage_path=temp_storage_path)
+        result = store2.get(content_id)
+
+        assert result is None
+        assert not content_file.exists()
+
+    def test_eviction_removes_from_disk(self, temp_storage_path):
+        """Test that eviction removes files from disk."""
+        store = ContentStore(max_size=2, storage_path=temp_storage_path)
+
+        id1, _ = store.store("content1")
+        id2, _ = store.store("content2")
+        id3, _ = store.store("content3")
+
+        file1 = Path(temp_storage_path) / f"{id1}.json"
+        assert not file1.exists()
+
+        file2 = Path(temp_storage_path) / f"{id2}.json"
+        file3 = Path(temp_storage_path) / f"{id3}.json"
+        assert file2.exists()
+        assert file3.exists()
+
+    def test_no_persistence_without_storage_path(self):
+        """Test that no files are created without storage_path."""
+        store = ContentStore()
+        content_id, _ = store.store("no persistence")
+
+        assert store.storage_path is None
+
+    def test_corrupted_file_removed_on_load(self, temp_storage_path):
+        """Test that corrupted files are removed on load."""
+        corrupted_file = Path(temp_storage_path) / "corrupted.json"
+        Path(temp_storage_path).mkdir(parents=True, exist_ok=True)
+        corrupted_file.write_text("not valid json")
+
+        ContentStore(storage_path=temp_storage_path)
+
+        assert not corrupted_file.exists()
