@@ -8,7 +8,6 @@ from web_mcp.searxng import (
     SearXNGError,
     _blacklist,
     _blacklist_instance,
-    _get_fallback_instances,
     _is_blacklisted,
     get_searxng_url,
     parse_date,
@@ -55,6 +54,15 @@ class TestGetSearxngUrl:
 class TestSearch:
     """Tests for search function."""
 
+    @pytest.fixture(autouse=True)
+    def mock_duckduckgo(self):
+        """Mock DuckDuckGo fallback for all search tests."""
+        with patch(
+            "web_mcp.searxng._search_duckduckgo",
+            new=AsyncMock(side_effect=SearXNGError("DuckDuckGo not available")),
+        ):
+            yield
+
     @pytest.mark.asyncio
     async def test_search_success(self):
         """Test successful search."""
@@ -97,7 +105,7 @@ class TestSearch:
                 with pytest.raises(SearXNGError) as exc_info:
                     await search("test query")
 
-                assert "not configured" in str(exc_info.value).lower()
+                assert "duckduckgo" in str(exc_info.value).lower()
 
     @pytest.mark.asyncio
     async def test_search_uses_fallback_when_not_configured(self):
@@ -148,7 +156,7 @@ class TestSearch:
                     with pytest.raises(SearXNGError) as exc_info:
                         await search("test query")
 
-                    assert "Request timed out" in str(exc_info.value)
+                    assert "DuckDuckGo" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_search_http_error(self):
@@ -166,7 +174,7 @@ class TestSearch:
                     with pytest.raises(SearXNGError) as exc_info:
                         await search("test query")
 
-                    assert "500" in str(exc_info.value)
+                    assert "DuckDuckGo" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_search_with_published_date(self):
@@ -321,7 +329,7 @@ class TestSearch:
                     with pytest.raises(SearXNGError) as exc_info:
                         await search("test query")
 
-                    assert "All search attempts failed" in str(exc_info.value)
+                    assert "DuckDuckGo" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_search_snippet_fallback(self):

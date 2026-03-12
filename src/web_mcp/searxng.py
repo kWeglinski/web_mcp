@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import time
+import urllib.parse
 from datetime import datetime
 
 import httpx
@@ -200,7 +201,7 @@ def _is_failure_response(data: dict | None, status_code: int) -> bool:
 
 
 async def search(query: str, max_results: int = 10) -> list[dict]:
-    """Search using SearXNG with automatic fallback to public instances.
+    """Search using SearXNG with automatic fallback to public instances and DuckDuckGo.
 
     Args:
         query: The search query string
@@ -224,9 +225,12 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
             instances_to_try.append(url)
 
     if not instances_to_try:
-        raise SearXNGError("SearXNG is not configured and no public instances available.")
+        logger.info("[SearXNG] No SearXNG instances available, trying DuckDuckGo fallback")
+        try:
+            return await _search_duckduckgo(query, max_results)
+        except SearXNGError as e:
+            raise SearXNGError(f"No instances available and DuckDuckGo failed: {e.message}")
 
-    last_error: str = ""
     attempts = 0
 
     for instance_url in instances_to_try[: MAX_RETRIES + 1]:
@@ -242,16 +246,22 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
             )
             return result
         except SearXNGError as e:
-            last_error = e.message
             logger.warning(f"[SearXNG] Failed attempt {attempts} on {instance_url}: {e.message}")
             _blacklist_instance(instance_url)
             continue
 
-    raise SearXNGError(f"All search attempts failed. Last error: {last_error}")
+    logger.info("[SearXNG] All SearXNG instances failed, trying DuckDuckGo fallback")
+    try:
+        return await _search_duckduckgo(query, max_results)
+    except SearXNGError as e:
+        raise SearXNGError(f"All SearXNG attempts failed and DuckDuckGo failed: {e.message}")
 
 
 async def _search_instance(instance_url: str, query: str, max_results: int) -> list[dict]:
-    """Execute search against a single SearXNG instance."""
+    """Execute search against a single SearXNG instance.
+
+    Tries JSON API first, falls back to HTML scraping if unavailable.
+    """
     search_url = f"{instance_url}/search"
     timeout = 30
 
@@ -268,38 +278,320 @@ async def _search_instance(instance_url: str, query: str, max_results: int) -> l
             if response.status_code == 429:
                 raise SearXNGError("Rate limited")
 
+            if response.status_code == 403:
+                logger.info("[SearXNG] JSON API blocked (403), trying HTML fallback")
+                return await _search_instance_html(instance_url, query, max_results)
+
             response.raise_for_status()
 
-            data = response.json()
-            results = data.get("results", [])
+            try:
+                data = response.json()
+                results = data.get("results", [])
 
-            if not results:
-                raise SearXNGError("No results returned")
+                if not results:
+                    logger.info("[SearXNG] JSON returned no results, trying HTML fallback")
+                    return await _search_instance_html(instance_url, query, max_results)
 
-            formatted_results = []
-            for result in results:
-                formatted_result = {
-                    "title": result.get("title", ""),
-                    "url": result.get("url", ""),
-                    "snippet": result.get("content", result.get("snippet", "")),
-                }
+                formatted_results = []
+                for result in results:
+                    formatted_result = {
+                        "title": result.get("title", ""),
+                        "url": result.get("url", ""),
+                        "snippet": result.get("content", result.get("snippet", "")),
+                    }
 
-                if "publishedDate" in result:
-                    formatted_result["published_date"] = result["publishedDate"]
-                if "score" in result:
-                    formatted_result["score"] = result["score"]
+                    if "publishedDate" in result:
+                        formatted_result["published_date"] = result["publishedDate"]
+                    if "score" in result:
+                        formatted_result["score"] = result["score"]
 
-                formatted_results.append(formatted_result)
+                    formatted_results.append(formatted_result)
 
-            return formatted_results
+                return formatted_results
+
+            except (ValueError, KeyError) as e:
+                logger.info(f"[SearXNG] JSON parse failed ({e}), trying HTML fallback")
+                return await _search_instance_html(instance_url, query, max_results)
 
     except SearXNGError:
         raise
     except httpx.TimeoutException as e:
         raise SearXNGError(f"Request timed out: {e}")
     except httpx.HTTPStatusError as e:
+        if e.response.status_code in (403, 406):
+            logger.info(f"[SearXNG] HTTP {e.response.status_code}, trying HTML fallback")
+            return await _search_instance_html(instance_url, query, max_results)
         raise SearXNGError(f"HTTP error {e.response.status_code}: {e}")
     except httpx.RequestError as e:
         raise SearXNGError(f"Request failed: {e}")
     except Exception as e:
         raise SearXNGError(f"Search failed: {e}")
+
+
+def _parse_searxng_html(html: str, max_results: int) -> list[dict]:
+    """Parse SearXNG HTML response to extract search results."""
+    results = []
+
+    result_pattern = re.compile(
+        r'<article[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</article>',
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    for match in result_pattern.finditer(html):
+        if len(results) >= max_results:
+            break
+
+        result_html = match.group(1)
+
+        url_match = re.search(
+            r'<a[^>]*href="([^"]+)"[^>]*class="[^"]*url[^"]*"[^>]*>',
+            result_html,
+            re.IGNORECASE,
+        )
+        if not url_match:
+            url_match = re.search(
+                r'<a[^>]*class="[^"]*url[^"]*"[^>]*href="([^"]+)"[^>]*>',
+                result_html,
+                re.IGNORECASE,
+            )
+        if not url_match:
+            url_match = re.search(
+                r'<h3[^>]*>.*?<a[^>]*href="([^"]+)"[^>]*>',
+                result_html,
+                re.DOTALL | re.IGNORECASE,
+            )
+
+        title_match = re.search(
+            r"<h3[^>]*>.*?<a[^>]*>(.*?)</a>.*?</h3>",
+            result_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not title_match:
+            title_match = re.search(
+                r'<a[^>]*class="[^"]*result-title[^"]*"[^>]*>(.*?)</a>',
+                result_html,
+                re.DOTALL | re.IGNORECASE,
+            )
+
+        content_match = re.search(
+            r'<p[^>]*class="[^"]*result-content[^"]*"[^>]*>(.*?)</p>',
+            result_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+        if not content_match:
+            content_match = re.search(
+                r'<span[^>]*class="[^"]*content[^"]*"[^>]*>(.*?)</span>',
+                result_html,
+                re.DOTALL | re.IGNORECASE,
+            )
+
+        url = url_match.group(1) if url_match else ""
+        title = remove_html_tags(title_match.group(1)) if title_match else ""
+        content = remove_html_tags(content_match.group(1)) if content_match else ""
+
+        if not url or not title:
+            continue
+
+        results.append(
+            {
+                "title": title.strip(),
+                "url": url.strip(),
+                "snippet": content.strip(),
+            }
+        )
+
+    return results
+
+
+async def _search_instance_html(instance_url: str, query: str, max_results: int) -> list[dict]:
+    """Search using HTML scraping when JSON API is not available."""
+    try:
+        from web_mcp.playwright_fetcher import PlaywrightFetchError, fetch_with_playwright
+    except ImportError:
+        raise SearXNGError("Playwright not available for HTML fallback")
+
+    encoded_query = urllib.parse.quote(query)
+    search_url = f"{instance_url}/search?q={encoded_query}"
+
+    logger.info(f"[SearXNG] Attempting HTML scrape of {search_url}")
+
+    html = None
+
+    try:
+        html = await fetch_with_playwright(
+            search_url,
+            timeout=45000,
+            wait_for_selector="article, .result, #results, [class*='result']",
+            wait_time=3000,
+        )
+    except PlaywrightFetchError as e:
+        if "wait_for_selector" in str(e) or "Timeout" in str(e) or "timeout" in str(e).lower():
+            logger.info("[SearXNG] Selector timeout, trying without wait")
+            try:
+                html = await fetch_with_playwright(
+                    search_url,
+                    timeout=45000,
+                    wait_time=5000,
+                )
+            except PlaywrightFetchError as e2:
+                raise SearXNGError(f"HTML scrape failed: {e2.message}")
+        else:
+            raise SearXNGError(f"HTML scrape failed: {e.message}")
+    except Exception as e:
+        raise SearXNGError(f"HTML scrape failed: {e}")
+
+    if not html:
+        raise SearXNGError("HTML scrape returned no content")
+
+    if "Too Many Requests" in html or "Rate limit" in html or "429" in html:
+        raise SearXNGError("Rate limited (HTML)")
+
+    results = _parse_searxng_html(html, max_results)
+
+    if not results:
+        results = _parse_generic_search_html(html, max_results)
+
+    if not results:
+        raise SearXNGError("No results found in HTML")
+
+    logger.info(f"[SearXNG] HTML scrape successful - got {len(results)} results")
+    return results
+
+
+async def _search_duckduckgo(query: str, max_results: int) -> list[dict]:
+    """Fallback search using DuckDuckGo HTML."""
+    encoded_query = urllib.parse.quote(query)
+    search_url = f"https://html.duckduckgo.com/html/?q={encoded_query}"
+
+    logger.info(f"[SearXNG] Falling back to DuckDuckGo: {search_url}")
+
+    try:
+        async with httpx.AsyncClient() as client:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+            }
+            response = await client.get(
+                search_url, headers=headers, timeout=30, follow_redirects=True
+            )
+            response.raise_for_status()
+
+            html = response.text
+            results = _parse_duckduckgo_html(html, max_results)
+
+            if not results:
+                results = _parse_generic_search_html(html, max_results)
+
+            if not results:
+                raise SearXNGError("No results from DuckDuckGo")
+
+            logger.info(f"[SearXNG] DuckDuckGo successful - got {len(results)} results")
+            return results
+
+    except httpx.HTTPStatusError as e:
+        raise SearXNGError(f"DuckDuckGo HTTP error: {e.response.status_code}")
+    except httpx.RequestError as e:
+        raise SearXNGError(f"DuckDuckGo request failed: {e}")
+    except Exception as e:
+        raise SearXNGError(f"DuckDuckGo failed: {e}")
+
+
+def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict]:
+    """Parse DuckDuckGo HTML response."""
+    results = []
+
+    result_pattern = re.compile(
+        r'<div[^>]*class="[^"]*result[^"]*"[^>]*>(.*?)</div>',
+        re.DOTALL | re.IGNORECASE,
+    )
+
+    for match in result_pattern.finditer(html):
+        if len(results) >= max_results:
+            break
+
+        result_html = match.group(1)
+
+        url_match = re.search(
+            r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>',
+            result_html,
+            re.IGNORECASE,
+        )
+        if not url_match:
+            url_match = re.search(
+                r'href="[^"]*uddg=([^"&]+)[^"]*"',
+                result_html,
+                re.IGNORECASE,
+            )
+
+        title_match = re.search(
+            r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*>(.*?)</a>',
+            result_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+
+        snippet_match = re.search(
+            r'<a[^>]*class="[^"]*result__snippet[^"]*"[^>]*>(.*?)</a>',
+            result_html,
+            re.DOTALL | re.IGNORECASE,
+        )
+
+        url = url_match.group(1) if url_match else ""
+        if url.startswith("//"):
+            url = "https:" + url
+        if "uddg=" in url:
+            uddg_match = re.search(r"uddg=([^&]+)", url)
+            if uddg_match:
+                url = urllib.parse.unquote(uddg_match.group(1))
+
+        title = remove_html_tags(title_match.group(1)) if title_match else ""
+        snippet = remove_html_tags(snippet_match.group(1)) if snippet_match else ""
+
+        if not url or not title:
+            continue
+
+        results.append(
+            {
+                "title": title.strip(),
+                "url": url.strip(),
+                "snippet": snippet.strip(),
+            }
+        )
+
+    return results
+
+
+def _parse_generic_search_html(html: str, max_results: int) -> list[dict]:
+    """Fallback parser for various search result HTML structures."""
+    results = []
+
+    url_title_pattern = re.compile(
+        r'<a[^>]*href="(https?://[^"]+)"[^>]*>([^<]{5,}?)</a>',
+        re.IGNORECASE,
+    )
+
+    seen_urls = set()
+    for match in url_title_pattern.finditer(html):
+        if len(results) >= max_results:
+            break
+
+        url = match.group(1).strip()
+        title = match.group(2).strip()
+
+        if url in seen_urls:
+            continue
+        if any(skip in url.lower() for skip in ["search?", "page=", "javascript:", "mailto:"]):
+            continue
+        if len(title) < 3:
+            continue
+
+        seen_urls.add(url)
+        results.append(
+            {
+                "title": title,
+                "url": url,
+                "snippet": "",
+            }
+        )
+
+    return results
