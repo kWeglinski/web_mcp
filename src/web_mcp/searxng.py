@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 INSTANCES_URL = "https://searx.space/data/instances.json"
 INSTANCES_CACHE_TTL = 3600
 BLACKLIST_TTL = 300
-MAX_RETRIES = 20
+MAX_RETRIES = 3
 
 _instances_cache: tuple[float, list[str]] = (0, [])
 _blacklist: dict[str, float] = {}
@@ -254,42 +254,40 @@ async def _process_search_queue():
 
 async def _search_impl(query: str, max_results: int) -> list[dict]:
     """Internal search implementation."""
+    import random
+
     configured_url = get_searxng_url()
 
-    instances_to_try = []
     if configured_url:
-        instances_to_try.append(configured_url.rstrip("/"))
+        configured_url = configured_url.rstrip("/")
+        if not _is_blacklisted(configured_url):
+            logger.info(f"[SearXNG] Trying configured instance: {configured_url}")
+            try:
+                result = await _search_instance(configured_url, query, max_results)
+                logger.info(
+                    f"[SearXNG] Success from configured instance - got {len(result)} results"
+                )
+                return result
+            except SearXNGError as e:
+                logger.warning(f"[SearXNG] Configured instance failed: {e.message}")
+                _blacklist_instance(configured_url)
 
     fallbacks = await _get_fallback_instances()
-    for url in fallbacks:
-        if url not in instances_to_try:
-            instances_to_try.append(url)
+    available_fallbacks = [u for u in fallbacks if not _is_blacklisted(u)]
 
-    if not instances_to_try:
-        logger.info("[SearXNG] No SearXNG instances available, trying DuckDuckGo fallback")
-        try:
-            return await _search_duckduckgo(query, max_results)
-        except SearXNGError as e:
-            raise SearXNGError(f"No instances available and DuckDuckGo failed: {e.message}")
+    if available_fallbacks:
+        random.shuffle(available_fallbacks)
 
-    attempts = 0
-
-    for instance_url in instances_to_try[: MAX_RETRIES + 1]:
-        if _is_blacklisted(instance_url):
-            continue
-
-        attempts += 1
-        logger.info(f"[SearXNG] Attempt {attempts}: Trying {instance_url}")
-        try:
-            result = await _search_instance(instance_url, query, max_results)
-            logger.info(
-                f"[SearXNG] Success on attempt {attempts} from {instance_url} - got {len(result)} results"
-            )
-            return result
-        except SearXNGError as e:
-            logger.warning(f"[SearXNG] Failed attempt {attempts} on {instance_url}: {e.message}")
-            _blacklist_instance(instance_url)
-            continue
+        for attempt, instance_url in enumerate(available_fallbacks[:MAX_RETRIES], 1):
+            logger.info(f"[SearXNG] Fallback attempt {attempt} (Playwright): {instance_url}")
+            try:
+                result = await _search_instance(instance_url, query, max_results, force_html=True)
+                logger.info(f"[SearXNG] Success from fallback - got {len(result)} results")
+                return result
+            except SearXNGError as e:
+                logger.warning(f"[SearXNG] Fallback failed: {e.message}")
+                _blacklist_instance(instance_url)
+                continue
 
     logger.info("[SearXNG] All SearXNG instances failed, trying DuckDuckGo fallback")
     try:
@@ -298,11 +296,17 @@ async def _search_impl(query: str, max_results: int) -> list[dict]:
         raise SearXNGError(f"All SearXNG attempts failed and DuckDuckGo failed: {e.message}")
 
 
-async def _search_instance(instance_url: str, query: str, max_results: int) -> list[dict]:
+async def _search_instance(
+    instance_url: str, query: str, max_results: int, force_html: bool = False
+) -> list[dict]:
     """Execute search against a single SearXNG instance.
 
     Tries JSON API first, falls back to HTML scraping if unavailable.
+    If force_html is True, skips HTTP and uses Playwright directly.
     """
+    if force_html:
+        return await _search_instance_html(instance_url, query, max_results)
+
     search_url = f"{instance_url}/search"
     timeout = 30
 
@@ -317,7 +321,8 @@ async def _search_instance(instance_url: str, query: str, max_results: int) -> l
             response = await client.get(search_url, params=params, timeout=timeout)
 
             if response.status_code == 429:
-                raise SearXNGError("Rate limited")
+                logger.info("[SearXNG] JSON API rate limited (429), trying HTML fallback")
+                return await _search_instance_html(instance_url, query, max_results)
 
             if response.status_code == 403:
                 logger.info("[SearXNG] JSON API blocked (403), trying HTML fallback")
@@ -356,15 +361,17 @@ async def _search_instance(instance_url: str, query: str, max_results: int) -> l
 
     except SearXNGError:
         raise
-    except httpx.TimeoutException as e:
-        raise SearXNGError(f"Request timed out: {e}")
+    except httpx.TimeoutException:
+        logger.info("[SearXNG] HTTP timeout, trying HTML fallback")
+        return await _search_instance_html(instance_url, query, max_results)
     except httpx.HTTPStatusError as e:
-        if e.response.status_code in (403, 406):
+        if e.response.status_code in (403, 406, 429):
             logger.info(f"[SearXNG] HTTP {e.response.status_code}, trying HTML fallback")
             return await _search_instance_html(instance_url, query, max_results)
         raise SearXNGError(f"HTTP error {e.response.status_code}: {e}")
-    except httpx.RequestError as e:
-        raise SearXNGError(f"Request failed: {e}")
+    except httpx.RequestError:
+        logger.info("[SearXNG] HTTP request failed, trying HTML fallback")
+        return await _search_instance_html(instance_url, query, max_results)
     except Exception as e:
         raise SearXNGError(f"Search failed: {e}")
 
@@ -553,17 +560,29 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict]:
 
         result_html = match.group(1)
 
-        url_match = re.search(
-            r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>',
+        uddg_match = re.search(
+            r'href="[^"]*uddg=([^"&]+)[^"]*"',
             result_html,
             re.IGNORECASE,
         )
-        if not url_match:
+
+        if uddg_match:
+            url = urllib.parse.unquote(uddg_match.group(1))
+        else:
             url_match = re.search(
-                r'href="[^"]*uddg=([^"&]+)[^"]*"',
+                r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*href="([^"]+)"[^>]*>',
                 result_html,
                 re.IGNORECASE,
             )
+            url = url_match.group(1) if url_match else ""
+            if url.startswith("//"):
+                url = "https:" + url
+
+        if not url:
+            continue
+
+        if "y.js?" in url or "ad_domain=" in url or "duckduckgo.com" in url:
+            continue
 
         title_match = re.search(
             r'<a[^>]*class="[^"]*result__a[^"]*"[^>]*>(.*?)</a>',
@@ -577,18 +596,10 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict]:
             re.DOTALL | re.IGNORECASE,
         )
 
-        url = url_match.group(1) if url_match else ""
-        if url.startswith("//"):
-            url = "https:" + url
-        if "uddg=" in url:
-            uddg_match = re.search(r"uddg=([^&]+)", url)
-            if uddg_match:
-                url = urllib.parse.unquote(uddg_match.group(1))
-
         title = remove_html_tags(title_match.group(1)) if title_match else ""
         snippet = remove_html_tags(snippet_match.group(1)) if snippet_match else ""
 
-        if not url or not title:
+        if not title:
             continue
 
         results.append(

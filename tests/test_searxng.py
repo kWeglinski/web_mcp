@@ -18,11 +18,15 @@ from web_mcp.searxng import (
 
 
 @pytest.fixture(autouse=True)
-def clear_blacklist():
-    """Clear the blacklist before each test."""
+def clear_global_state():
+    """Clear global state before and after each test."""
+    import web_mcp.searxng as searxng_module
+
     _blacklist.clear()
+    searxng_module._search_queue = None
     yield
     _blacklist.clear()
+    searxng_module._search_queue = None
 
 
 class TestGetSearxngUrl:
@@ -115,29 +119,23 @@ class TestSearch:
         env_copy = os.environ.copy()
         env_copy.pop("WEB_MCP_SEARXNG_URL", None)
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Fallback Result",
-                    "url": "https://fallback.com",
-                    "content": "From fallback instance",
-                }
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-
         with patch.dict("os.environ", env_copy, clear=True):
             with patch(
                 "web_mcp.searxng._get_fallback_instances",
                 new=AsyncMock(return_value=["https://fallback.searx.com"]),
             ):
-                with patch("httpx.AsyncClient") as mock_client_class:
-                    mock_client = MagicMock()
-                    mock_client.get = AsyncMock(return_value=mock_response)
-                    mock_client_class.return_value.__aenter__.return_value = mock_client
-
+                with patch(
+                    "web_mcp.searxng._search_instance_html",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "title": "Fallback Result",
+                                "url": "https://fallback.com",
+                                "snippet": "From fallback instance",
+                            }
+                        ]
+                    ),
+                ):
                     results = await search("test query")
 
                     assert len(results) == 1
@@ -234,100 +232,102 @@ class TestSearch:
 
     @pytest.mark.asyncio
     async def test_search_empty_results_tries_fallback(self):
-        """Test search with no results tries fallback instances."""
+        """Test search with no results tries HTML fallback then fallback instances."""
         _blacklist.clear()
 
-        mock_empty_response = MagicMock()
-        mock_empty_response.status_code = 200
-        mock_empty_response.json.return_value = {"results": []}
-        mock_empty_response.raise_for_status = MagicMock()
+        with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
+            with patch(
+                "web_mcp.searxng._get_fallback_instances",
+                new=AsyncMock(return_value=["https://fallback.com"]),
+            ):
+                with patch(
+                    "web_mcp.searxng._search_instance_html",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "title": "Fallback Result",
+                                "url": "https://fallback.com",
+                                "snippet": "From fallback",
+                            }
+                        ]
+                    ),
+                ):
+                    with patch("httpx.AsyncClient") as mock_client_class:
+                        mock_response = MagicMock()
+                        mock_response.status_code = 200
+                        mock_response.json.return_value = {"results": []}
+                        mock_response.raise_for_status = MagicMock()
 
-        mock_success_response = MagicMock()
-        mock_success_response.status_code = 200
-        mock_success_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Fallback Result",
-                    "url": "https://fallback.com",
-                    "content": "From fallback",
-                }
-            ]
-        }
-        mock_success_response.raise_for_status = MagicMock()
+                        mock_client = MagicMock()
+                        mock_client.get = AsyncMock(return_value=mock_response)
+                        mock_client_class.return_value.__aenter__.return_value = mock_client
 
-        with patch(
-            "web_mcp.searxng._get_fallback_instances",
-            new=AsyncMock(return_value=["https://fallback.com"]),
-        ):
-            with patch("httpx.AsyncClient") as mock_client_class:
-                mock_client = MagicMock()
-                mock_client.get = AsyncMock(
-                    side_effect=[mock_empty_response, mock_success_response]
-                )
-                mock_client_class.return_value.__aenter__.return_value = mock_client
+                        results = await search("test query")
 
-                with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
-                    results = await search("test query")
-
-                    assert len(results) == 1
-                    assert results[0]["title"] == "Fallback Result"
+                        assert len(results) == 1
+                        assert results[0]["title"] == "Fallback Result"
 
     @pytest.mark.asyncio
     async def test_search_rate_limit_tries_fallback(self):
-        """Test search with 429 rate limit tries fallback instances."""
+        """Test search with 429 rate limit tries HTML fallback."""
         _blacklist.clear()
 
-        mock_rate_limited = MagicMock()
-        mock_rate_limited.status_code = 429
+        with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
+            with patch(
+                "web_mcp.searxng._get_fallback_instances",
+                new=AsyncMock(return_value=["https://fallback.com"]),
+            ):
+                with patch(
+                    "web_mcp.searxng._search_instance_html",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "title": "Success",
+                                "url": "https://success.com",
+                                "snippet": "Works",
+                            }
+                        ]
+                    ),
+                ):
+                    with patch("httpx.AsyncClient") as mock_client_class:
+                        mock_rate_limited = MagicMock()
+                        mock_rate_limited.status_code = 429
 
-        mock_success_response = MagicMock()
-        mock_success_response.status_code = 200
-        mock_success_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Success",
-                    "url": "https://success.com",
-                    "content": "Works",
-                }
-            ]
-        }
-        mock_success_response.raise_for_status = MagicMock()
+                        mock_client = MagicMock()
+                        mock_client.get = AsyncMock(return_value=mock_rate_limited)
+                        mock_client_class.return_value.__aenter__.return_value = mock_client
 
-        with patch(
-            "web_mcp.searxng._get_fallback_instances",
-            new=AsyncMock(return_value=["https://fallback.com"]),
-        ):
-            with patch("httpx.AsyncClient") as mock_client_class:
-                mock_client = MagicMock()
-                mock_client.get = AsyncMock(side_effect=[mock_rate_limited, mock_success_response])
-                mock_client_class.return_value.__aenter__.return_value = mock_client
+                        results = await search("test query")
 
-                with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
-                    results = await search("test query")
-
-                    assert len(results) == 1
-                    assert results[0]["title"] == "Success"
+                        assert len(results) == 1
+                        assert results[0]["title"] == "Success"
 
     @pytest.mark.asyncio
     async def test_search_all_instances_fail(self):
         """Test search when all instances fail."""
         _blacklist.clear()
 
-        mock_failed = MagicMock()
-        mock_failed.status_code = 429
+        with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
+            with patch(
+                "web_mcp.searxng._get_fallback_instances",
+                new=AsyncMock(return_value=["https://fallback1.com", "https://fallback2.com"]),
+            ):
+                with patch(
+                    "web_mcp.searxng._search_instance_html",
+                    new=AsyncMock(side_effect=SearXNGError("HTML scrape failed")),
+                ):
+                    with patch("httpx.AsyncClient") as mock_client_class:
+                        mock_failed = MagicMock()
+                        mock_failed.status_code = 429
 
-        with patch(
-            "web_mcp.searxng._get_fallback_instances",
-            new=AsyncMock(return_value=["https://fallback1.com", "https://fallback2.com"]),
-        ):
-            with patch("httpx.AsyncClient") as mock_client_class:
-                mock_client = MagicMock()
-                mock_client.get = AsyncMock(return_value=mock_failed)
-                mock_client_class.return_value.__aenter__.return_value = mock_client
+                        mock_client = MagicMock()
+                        mock_client.get = AsyncMock(return_value=mock_failed)
+                        mock_client_class.return_value.__aenter__.return_value = mock_client
 
-                with patch.dict("os.environ", {"WEB_MCP_SEARXNG_URL": "http://localhost:8080"}):
-                    with pytest.raises(SearXNGError) as exc_info:
-                        await search("test query")
+                        with pytest.raises(SearXNGError) as exc_info:
+                            await search("test query")
+
+                        assert "DuckDuckGo" in str(exc_info.value)
 
                     assert "DuckDuckGo" in str(exc_info.value)
 
@@ -620,31 +620,27 @@ class TestBlacklist:
         _blacklist.clear()
         _blacklist_instance("https://blacklisted.com")
 
-        mock_response = MagicMock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "results": [
-                {
-                    "title": "Success",
-                    "url": "https://success.com",
-                    "content": "Works",
-                }
-            ]
-        }
-        mock_response.raise_for_status = MagicMock()
-
         with patch.dict("os.environ", {}, clear=True):
             with patch(
                 "web_mcp.searxng._get_fallback_instances",
                 new=AsyncMock(return_value=["https://blacklisted.com", "https://good.com"]),
             ):
-                with patch("httpx.AsyncClient") as mock_client_class:
-                    mock_client = MagicMock()
-                    mock_client.get = AsyncMock(return_value=mock_response)
-                    mock_client_class.return_value.__aenter__.return_value = mock_client
-
+                with patch(
+                    "web_mcp.searxng._search_instance_html",
+                    new=AsyncMock(
+                        return_value=[
+                            {
+                                "title": "Success",
+                                "url": "https://success.com",
+                                "snippet": "Works",
+                            }
+                        ]
+                    ),
+                ) as mock_html:
                     results = await search("test query")
 
                     assert len(results) == 1
-                    called_url = mock_client.get.call_args[0][0]
+                    assert results[0]["title"] == "Success"
+                    mock_html.assert_called_once()
+                    called_url = mock_html.call_args[0][0]
                     assert "good.com" in called_url

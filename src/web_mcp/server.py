@@ -662,7 +662,10 @@ async def run_javascript(
         context_code = "\n".join(context_lines)
 
         code_trimmed = code.strip()
-        is_statement = code_trimmed.endswith((";", "}"))
+        is_statement = code_trimmed.endswith((";", "}")) or (
+            code_trimmed.endswith(")")
+            and not (code_trimmed.startswith("(") or code_trimmed.startswith("["))
+        )
 
         if is_statement:
             full_code = f"(async () => {{\n{context_code}\n{code_trimmed}\n}})()"
