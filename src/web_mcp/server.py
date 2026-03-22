@@ -449,6 +449,27 @@ async def search_web(
         return f"*Search failed: {e}*"
 
 
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    structured_output=OUTPUT_SCHEMAS,
+)
+async def brave_search(
+    query: str = Field(description="Search query"),
+) -> str:
+    """Search the web via Brave Search API. Returns top 5 results. Requires BRAVE_API_KEY environment variable."""
+    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown, search as brave_search_impl
+
+    try:
+        results = await brave_search_impl(query, max_results=5)
+        json_data = {"web": {"results": results}}
+        return parse_brave_to_markdown(json_data, query, max_results=5)
+
+    except BraveSearchError as e:
+        return f"*Brave Search failed: {e.message}*"
+    except Exception as e:
+        return f"*Brave Search failed: {e}*"
+
+
 @mcp.tool(annotations=ToolAnnotations(openWorldHint=True), structured_output=OUTPUT_SCHEMAS)
 async def create_chart_tool(
     type: str = Field(
@@ -752,7 +773,7 @@ def main():
     """Run the MCP server."""
     import sys
 
-    tools = "get_page, search_web, create_chart_tool, render_html, current_datetime, health, run_javascript"
+    tools = "get_page, search_web, brave_search, create_chart_tool, render_html, current_datetime, health, run_javascript"
 
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")
