@@ -3,7 +3,6 @@
 import logging
 import os
 import re
-from datetime import datetime
 
 import httpx
 
@@ -128,7 +127,7 @@ async def search(query: str, max_results: int = 10, count: int = 20) -> list[dic
         "X-Subscription-Token": api_key,
     }
 
-    params = {
+    params: dict[str, str | int] = {
         "q": query,
         "count": count,
     }

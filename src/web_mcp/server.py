@@ -424,6 +424,26 @@ async def get_page(
     return extracted.text
 
 
+async def _search_web_brave_fallback(query: str) -> list[dict] | None:
+    """Attempt Brave search as fallback when SearXNG returns no results."""
+    from web_mcp.brave import BraveSearchError, get_brave_api_key
+
+    if not get_brave_api_key():
+        return None
+
+    try:
+        from web_mcp.brave import search as brave_search_impl
+
+        results = await brave_search_impl(query, max_results=20)
+        if results:
+            logger.info(f"[search_web] Brave fallback returned {len(results)} results")
+            return results
+    except (BraveSearchError, Exception) as e:
+        logger.warning(f"[search_web] Brave fallback failed: {e}")
+
+    return None
+
+
 @mcp.tool(
     annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
     structured_output=OUTPUT_SCHEMAS,
@@ -437,6 +457,12 @@ async def search_web(
     try:
         results = await search(query, 30)
 
+        if not results:
+            logger.info("[search_web] SearXNG returned empty, trying Brave fallback")
+            brave_results = await _search_web_brave_fallback(query)
+            if brave_results:
+                results = brave_results
+
         if results:
             from web_mcp.research.bm25 import rerank_search_results
 
@@ -446,6 +472,15 @@ async def search_web(
         return parse_searxng_to_markdown(json_data, query, max_results=5)
 
     except Exception as e:
+        logger.warning(f"[search_web] SearXNG failed: {e}, trying Brave fallback")
+        brave_results = await _search_web_brave_fallback(query)
+        if brave_results:
+            from web_mcp.research.bm25 import rerank_search_results
+
+            brave_results = rerank_search_results(brave_results, query)
+            json_data = {"results": brave_results}
+            return parse_searxng_to_markdown(json_data, query, max_results=5)
+
         return f"*Search failed: {e}*"
 
 
@@ -457,11 +492,25 @@ async def brave_search(
     query: str = Field(description="Search query"),
 ) -> str:
     """Search the web via Brave Search API. Returns top 5 results. Requires BRAVE_API_KEY environment variable."""
-    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown, search as brave_search_impl
+    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown
+    from web_mcp.brave import search as brave_search_impl
 
     try:
         results = await brave_search_impl(query, max_results=5)
-        json_data = {"web": {"results": results}}
+        json_data = {
+            "web": {
+                "results": [
+                    {
+                        "title": r["title"],
+                        "url": r["url"],
+                        "description": r["snippet"],
+                        "page_age": r.get("published_date", ""),
+                        "profile": {"name": ""},
+                    }
+                    for r in results
+                ]
+            }
+        }
         return parse_brave_to_markdown(json_data, query, max_results=5)
 
     except BraveSearchError as e:
