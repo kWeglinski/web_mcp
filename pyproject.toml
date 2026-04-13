@@ -7,17 +7,17 @@ requires-python = ">=3.12"
 dependencies = [
     "beautifulsoup4>=4.14.3",
     "httpx>=0.28.1",
-    "kaleido>=0.2.0",
-    "mcp>=1.26.0",
-    "mini-racer>=0.14.0",
-    "playwright>=1.40.0",
-    "plotly>=5.18.0",
+    "kaleido>=1.2.0",
+    "mcp>=1.27.0",
+    "mini-racer>=0.14.1",
+    "playwright>=1.58.0",
+    "plotly>=6.7.0",
     "readability>=0.3.2",
     "trafilatura>=2.0.0",
-    "uvicorn>=0.34.0",
-    "numpy>=1.26.0",
-    "pypdfium2>=5.0.0",
-    "pypdf>=4.0.0",  # fallback
+    "uvicorn>=0.44.0",
+    "numpy>=2.4.4",
+    "pypdfium2>=5.7.0",
+    "pypdf>=6.10.0",  # fallback
 ]
 
 [project.scripts]
