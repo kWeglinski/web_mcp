@@ -457,8 +457,14 @@ async def search_web(
     try:
         results = await search(query, 30)
 
-        if not results:
-            logger.info("[search_web] SearXNG returned empty, trying Brave fallback")
+        has_meaningful = any(
+            r.get("score", 0) or r.get("bm25_score", 0) or (r.get("content") or r.get("snippet"))
+            for r in results
+        )
+        if not has_meaningful:
+            logger.info(
+                "[search_web] SearXNG returned no meaningful results, trying Brave fallback"
+            )
             brave_results = await _search_web_brave_fallback(query)
             if brave_results:
                 results = brave_results
