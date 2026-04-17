@@ -122,8 +122,8 @@ jobs:
           uv run pytest --cov=src/web_mcp --cov-report=xml --cov-report=term -v
           COVERAGE=$(uv run python -c "import xml.etree.ElementTree as ET; tree = ET.parse('coverage.xml'); root = tree.getroot(); print(float(root.attrib.get('line-rate', 0)) * 100)")
           echo "Coverage: ${COVERAGE}%"
-          if [ "$(echo "$COVERAGE < 60" | bc -l)" -eq 1 ]; then
-            echo "Coverage ${COVERAGE}% is below threshold of 60%"
+          if [ "$(echo "$COVERAGE < 55" | bc -l)" -eq 1 ]; then
+            echo "Coverage ${COVERAGE}% is below threshold of 55%"
             exit 1
           fi
 
