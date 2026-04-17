@@ -1,8 +1,8 @@
 """Tests for Brave Search module."""
 
-import os
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 from web_mcp.brave import (
     BraveSearchError,
