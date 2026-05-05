@@ -291,7 +291,7 @@ async def _fetch_core(
             url,
             timeout=request_timeout,
             follow_redirects=True,
-            headers={"User-Agent": config.user_agent},
+            headers=config.http_headers,
         )
 
         content_length = response.headers.get("content-length")

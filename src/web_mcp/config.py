@@ -89,7 +89,8 @@ class Config:
 
         # User-Agent header for requests (default with GitHub URL)
         self.user_agent: str = os.environ.get(
-            ENV_USER_AGENT, "WebMCP/1.0 (+https://github.com/yourorg/web-mcp)"
+            ENV_USER_AGENT,
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
         )
 
         # Maximum content length in bytes (default 10MB)
@@ -136,7 +137,24 @@ class Config:
 
         self.content_storage_path: str = os.environ.get(ENV_CONTENT_STORAGE_PATH, "/data/content")
 
-        # PDF settings
+    @property
+    def http_headers(self) -> dict[str, str]:
+        """Standard browser-like HTTP headers for outgoing requests."""
+        return {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,pl;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        }
+
+    # PDF settings
         self.pdf_chars_per_page: int = self._validate_int(
             os.environ.get(ENV_PDF_CHARS_PER_PAGE, "60000"), 10000, 500000
         )
