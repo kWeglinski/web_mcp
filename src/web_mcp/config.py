@@ -137,24 +137,7 @@ class Config:
 
         self.content_storage_path: str = os.environ.get(ENV_CONTENT_STORAGE_PATH, "/data/content")
 
-    @property
-    def http_headers(self) -> dict[str, str]:
-        """Standard browser-like HTTP headers for outgoing requests."""
-        return {
-            "User-Agent": self.user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
-            "Accept-Language": "en-US,en;q=0.9,pl;q=0.8",
-            "Accept-Encoding": "gzip, deflate, br",
-            "Connection": "keep-alive",
-            "Upgrade-Insecure-Requests": "1",
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Cache-Control": "max-age=0",
-        }
-
-    # PDF settings
+        # PDF settings
         self.pdf_chars_per_page: int = self._validate_int(
             os.environ.get(ENV_PDF_CHARS_PER_PAGE, "60000"), 10000, 500000
         )
@@ -193,6 +176,23 @@ class Config:
             1000,
             300000,  # 30s default max execution
         )
+
+    @property
+    def http_headers(self) -> dict[str, str]:
+        """Standard browser-like HTTP headers for outgoing requests."""
+        return {
+            "User-Agent": self.user_agent,
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9,pl;q=0.8",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Sec-Fetch-Dest": "document",
+            "Sec-Fetch-Mode": "navigate",
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-User": "?1",
+            "Cache-Control": "max-age=0",
+        }
 
     def _validate_int(self, value: str | None, min_val: int, max_val: int) -> int:
         """Validate integer configuration value.
