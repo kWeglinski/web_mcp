@@ -453,6 +453,11 @@ class TestUserAgentHeader:
             config.request_timeout = 30
             config.max_content_length = 10485760
             config.user_agent = "CustomBot/2.0 (+https://example.com/bot)"
+            config.http_headers = {
+                "User-Agent": "CustomBot/2.0 (+https://example.com/bot)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
             config.cache_ttl = 3600
 
             await fetch_url("https://example.com", config)
@@ -487,6 +492,11 @@ class TestUserAgentHeader:
             config.max_content_length = 10485760
             # Use default User-Agent from config
             config.user_agent = "WebMCP/1.0 (+https://github.com/yourorg/web-mcp)"
+            config.http_headers = {
+                "User-Agent": "WebMCP/1.0 (+https://github.com/yourorg/web-mcp)",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.9",
+            }
             config.cache_ttl = 3600
 
             await fetch_url("https://example.com", config)
