@@ -6,7 +6,7 @@ check the TLS handshake rather than just HTTP headers.
 """
 
 import asyncio
-from typing import Any, Dict, Optional
+from typing import Any
 
 from web_mcp.logging_utils import get_logger
 
@@ -41,7 +41,7 @@ def _is_tls_error_retryable(error: Exception) -> bool:
 
 def _fetch_with_tls_sync(
     url: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
 ) -> str:
@@ -85,7 +85,7 @@ def _fetch_with_tls_sync(
 
 async def fetch_with_tls(
     url: str,
-    headers: Dict[str, str],
+    headers: dict[str, str],
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
 ) -> str:
@@ -117,10 +117,10 @@ async def fetch_with_tls(
 
 async def fetch_with_tls_raw(
     url: str,
-    headers: Optional[Dict[str, str]] = None,
+    headers: dict[str, str] | None = None,
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Fetch URL using tls-client and return full response metadata.
 
     Args:
