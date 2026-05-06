@@ -33,6 +33,12 @@ ENV_JS_FETCH_TIMEOUT = "WEB_MCP_JS_FETCH_TIMEOUT"
 ENV_JS_FETCH_VERIFY_SSL = "WEB_MCP_JS_FETCH_VERIFY_SSL"
 ENV_JS_EXECUTION_TIMEOUT = "WEB_MCP_JS_EXECUTION_TIMEOUT"
 
+# Anti-bot detection evasion settings
+ENV_REQUEST_DELAY_MIN = "WEB_MCP_REQUEST_DELAY_MIN"
+ENV_REQUEST_DELAY_MAX = "WEB_MCP_REQUEST_DELAY_MAX"
+ENV_TLS_CLIENT_IDENTIFIER = "WEB_MCP_TLS_CLIENT_IDENTIFIER"
+ENV_REFERER = "WEB_MCP_REFERER"
+
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
 
@@ -177,9 +183,34 @@ class Config:
             300000,  # 30s default max execution
         )
 
+        # Anti-bot detection evasion settings
+        self.request_delay_min: float = self._validate_float(
+            os.environ.get(ENV_REQUEST_DELAY_MIN, "0.3"), 0.0, 10.0
+        )
+
+        self.request_delay_max: float = self._validate_float(
+            os.environ.get(ENV_REQUEST_DELAY_MAX, "1.5"), 0.0, 30.0
+        )
+
+        # Ensure min <= max
+        if self.request_delay_min > self.request_delay_max:
+            raise ValueError(
+                f"request_delay_min ({self.request_delay_min}) must be <= "
+                f"request_delay_max ({self.request_delay_max})"
+            )
+
+        self.tls_client_identifier: str = os.environ.get(ENV_TLS_CLIENT_IDENTIFIER, "chrome120")
+
+        self.referer: str = os.environ.get(ENV_REFERER, "")
+
     @property
     def http_headers(self) -> dict[str, str]:
-        """Standard browser-like HTTP headers for outgoing requests."""
+        """Standard browser-like HTTP headers for outgoing requests.
+
+        Note: Referer is not included here as it's set dynamically per-request
+        to simulate real browser navigation patterns. Use http_headers_with_referer()
+        for requests that need a Referer header.
+        """
         return {
             "User-Agent": self.user_agent,
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
@@ -193,6 +224,32 @@ class Config:
             "Sec-Fetch-User": "?1",
             "Cache-Control": "max-age=0",
         }
+
+    def http_headers_with_referer(self, url: str) -> dict[str, str]:
+        """Return headers with dynamic Referer for a given URL.
+
+        The Referer is set to the current URL being fetched, simulating
+        a user navigating from one page on the same site to another.
+
+        Args:
+            url: The URL being fetched (used as Referer source)
+
+        Returns:
+            Headers dict with Referer included if configured
+        """
+        headers = dict(self.http_headers)
+
+        if self.referer:
+            headers["Referer"] = self.referer
+        else:
+            # Dynamic Referer: strip query string and fragment from the URL
+            from urllib.parse import urlparse
+
+            parsed = urlparse(url)
+            referer_url = f"{parsed.scheme}://{parsed.netloc}{parsed.path}"
+            headers["Referer"] = referer_url
+
+        return headers
 
     def _validate_int(self, value: str | None, min_val: int, max_val: int) -> int:
         """Validate integer configuration value.
@@ -212,6 +269,28 @@ class Config:
             int_val = int(value)
             if min_val <= int_val <= max_val:
                 return int_val
+            raise ValueError(f"Value must be between {min_val} and {max_val}")
+        except (ValueError, TypeError) as e:
+            raise ValueError(f"Invalid configuration value: {e}")
+
+    def _validate_float(self, value: str | None, min_val: float, max_val: float) -> float:
+        """Validate float configuration value.
+
+        Args:
+            value: The string value to validate
+            min_val: Minimum allowed value
+            max_val: Maximum allowed value
+
+        Returns:
+            Validated float value
+
+        Raises:
+            ValueError: If the value is invalid
+        """
+        try:
+            float_val = float(value)
+            if min_val <= float_val <= max_val:
+                return float_val
             raise ValueError(f"Value must be between {min_val} and {max_val}")
         except (ValueError, TypeError) as e:
             raise ValueError(f"Invalid configuration value: {e}")
@@ -277,6 +356,9 @@ def validate_config() -> bool:
         _ = config.request_timeout
         _ = config.default_extractor
         _ = config.max_chars
+        _ = config.request_delay_min
+        _ = config.request_delay_max
+        _ = config.tls_client_identifier
         return True
     except ValueError as e:
         raise ValueError(f"Configuration validation failed: {e}")

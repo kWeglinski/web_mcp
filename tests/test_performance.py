@@ -2,7 +2,6 @@
 
 import pytest
 
-import web_mcp.fetcher as fetcher_module
 from web_mcp.cache import LRUCache, get_cache, reset_cache
 from web_mcp.fetcher import (
     FetchError,
@@ -10,34 +9,17 @@ from web_mcp.fetcher import (
 )
 
 
-def _reset_connection_pool():
-    """Reset the global connection pool without async close."""
-    fetcher_module._connection_pool = None
-
-
 class TestConnectionPool:
-    """Tests for connection pool functionality."""
+    """Tests for connection pool functionality.
 
-    @pytest.fixture
-    def clean_state(self):
-        """Clean up global state before test."""
-        _reset_connection_pool()
-        yield
-        _reset_connection_pool()
+    Note: get_connection_pool is deprecated since we now use tls-client
+    as the primary fetcher. It returns None for backward compatibility.
+    """
 
-    def test_get_connection_pool_singleton(self, clean_state):
-        """Test that get_connection_pool returns a singleton."""
-        pool1 = get_connection_pool()
-        pool2 = get_connection_pool()
-
-        assert pool1 is pool2
-
-    def test_connection_pool_has_limits(self, clean_state):
-        """Test that connection pool is created successfully."""
+    def test_get_connection_pool_returns_none(self):
+        """Test that get_connection_pool returns None (deprecated)."""
         pool = get_connection_pool()
-
-        assert pool is not None
-        assert hasattr(pool, "get")
+        assert pool is None
 
 
 class TestFetchUrlCached:
@@ -46,10 +28,8 @@ class TestFetchUrlCached:
     @pytest.fixture
     def clean_state(self):
         """Clean up global state before test."""
-        _reset_connection_pool()
         reset_cache()
         yield
-        _reset_connection_pool()
         reset_cache()
 
     def test_cache_hit(self, clean_state):
