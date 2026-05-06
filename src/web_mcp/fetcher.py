@@ -1,8 +1,10 @@
 """URL fetching module for web browsing."""
 
+import asyncio
+import random
+import re
 from dataclasses import dataclass
-
-import httpx
+from typing import Any, Dict
 
 from web_mcp.cache import get_cache
 from web_mcp.config import Config
@@ -12,42 +14,10 @@ from web_mcp.security import (
     validate_url_ip,
     validate_url_no_credentials,
 )
+from web_mcp.tls_fetcher import TlsFetchError, fetch_with_tls_raw
 from web_mcp.utils.retry import with_retry
 
 logger = get_logger(__name__)
-
-_connection_pool: httpx.AsyncClient | None = None
-
-
-def get_connection_pool() -> httpx.AsyncClient:
-    """Get the global connection pool (httpx AsyncClient).
-
-    Returns:
-        The global httpx.AsyncClient instance
-    """
-    global _connection_pool
-
-    if _connection_pool is None:
-        _connection_pool = httpx.AsyncClient(
-            limits=httpx.Limits(
-                max_connections=10,
-                max_keepalive_connections=5,
-            ),
-            timeout=httpx.Timeout(30.0),
-        )
-
-    return _connection_pool
-
-
-def close_connection_pool() -> None:
-    """Close the global connection pool."""
-    global _connection_pool
-
-    if _connection_pool is not None:
-        import asyncio
-
-        asyncio.run(_connection_pool.aclose())
-        _connection_pool = None
 
 
 class FetchError(Exception):
@@ -70,7 +40,7 @@ class RetryableFetchError(FetchError):
     """Exception that indicates the fetch operation can be retried.
 
     This is raised for transient errors like connection failures, timeouts,
-    server errors (5xx), and rate limits (429).
+    server errors (5xx), rate limits (429), and anti-bot blocks (403).
     """
 
     def __init__(self, message: str) -> None:
@@ -78,57 +48,47 @@ class RetryableFetchError(FetchError):
         self.message = message
 
 
-def _is_retryable_error(error: Exception) -> bool:
-    """Check if an error is retryable.
+def _should_retry_response(status_code: int | None) -> bool:
+    """Check if a response status code should trigger retry/fallback.
 
     Args:
-        error: The exception to check
+        status_code: The HTTP status code to check, or None if unknown
 
     Returns:
-        True if the error is retryable, False otherwise
+        True if the response should be retried or fallen back to Playwright, False otherwise
     """
-    if isinstance(error, httpx.ConnectError):
+    if status_code is None:
+        return False
+    if 500 <= status_code < 600:
         return True
-
-    if isinstance(error, httpx.TimeoutException):
+    if status_code == 429:
         return True
-
-    if isinstance(error, httpx.HTTPStatusError):
-        status_code = error.response.status_code
-        if 500 <= status_code < 600:
-            return True
-        if status_code == 429:
-            return True
-
+    # 403 indicates anti-bot detection - retry once then fall back to Playwright
+    if status_code == 403:
+        return True
     return False
 
 
-def _should_retry_response(response: httpx.Response) -> bool:
-    """Check if a response with status code should be retried.
+async def _apply_request_delay(config: Config) -> None:
+    """Apply a random delay before making a request to avoid detection patterns.
 
-    Args:
-        response: The HTTP response to check
-
-    Returns:
-        True if the response should be retried, False otherwise
+    Uses uniform distribution between min and max delay values from config.
     """
-    status_code = response.status_code
-    if 500 <= status_code < 600:
-        return True
-    return status_code == 429
+    delay = random.uniform(config.request_delay_min, config.request_delay_max)
+    await asyncio.sleep(delay)
 
 
 async def _fetch_with_size_limit(
-    client: httpx.AsyncClient, url: str, timeout: float, max_content_length: int, user_agent: str
+    url: str,
+    config: Config,
+    max_content_length: int,
 ) -> str:
-    """Fetch URL with content length limiting.
+    """Fetch URL with content length limiting using tls-client.
 
     Args:
-        client: The httpx AsyncClient instance
         url: The URL to fetch
-        timeout: Request timeout in seconds
+        config: Configuration object
         max_content_length: Maximum content length in bytes
-        user_agent: User-Agent header value
 
     Returns:
         Response text content
@@ -138,48 +98,172 @@ async def _fetch_with_size_limit(
         FetchError: For other fetch errors
     """
     try:
-        response = await client.get(
-            url, timeout=timeout, follow_redirects=True, headers={"User-Agent": user_agent}
+        headers = config.http_headers_with_referer(url)
+
+        response_data = await fetch_with_tls_raw(
+            url=url,
+            headers=headers,
+            client_identifier=config.tls_client_identifier,
+            timeout_seconds=int(config.request_timeout),
         )
 
-        content_length = response.headers.get("content-length")
-        if content_length is not None:
-            try:
-                cl = int(content_length)
-                if cl > max_content_length:
-                    raise ContentLengthExceededError(
-                        f"Content-Length ({cl} bytes) exceeds maximum allowed "
-                        f"({max_content_length} bytes)"
-                    )
-            except ValueError:
-                logger.warning(f"Invalid Content-Length header value: {content_length}")
+        content = response_data["content"]
+        if len(content.encode("utf-8", errors="replace")) > max_content_length:
+            raise ContentLengthExceededError(
+                f"Response size ({len(content)} chars) exceeds maximum allowed "
+                f"({max_content_length} bytes)"
+            )
 
-        total_bytes = 0
-        async for chunk in response.aiter_text():
-            total_bytes += len(chunk)
-            if total_bytes > max_content_length:
-                raise ContentLengthExceededError(
-                    f"Response size ({total_bytes} bytes) exceeds maximum allowed "
-                    f"({max_content_length} bytes)"
-                )
+        return content
 
-        response.raise_for_status()
-        return response.text
-
-    except httpx.TimeoutException as e:
-        logger.error(f"Request timed out for URL {url}: {e}")
-        raise RetryableFetchError(f"Request timed out: {e}")
     except ContentLengthExceededError:
         raise
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error for URL {url}: {e}")
-        status_code = e.response.status_code
-        if status_code == 429 or (500 <= status_code < 600):
-            raise RetryableFetchError(f"HTTP error {status_code}: {e}")
-        raise FetchError(f"HTTP error {status_code}: {e}")
-    except httpx.RequestError as e:
-        logger.error(f"Request failed for URL {url}: {e}")
-        raise RetryableFetchError(f"Request failed: {e}")
+    except TlsFetchError as e:
+        status_code = _extract_status_code(str(e))
+        if status_code and _should_retry_response(status_code):
+            raise RetryableFetchError(str(e))
+        logger.error(f"TLS fetch error for URL {url}: {e}")
+        raise FetchError(str(e))
+
+
+def _extract_status_code(error_str: str) -> int | None:
+    """Extract HTTP status code from a TlsFetchError message.
+
+    Args:
+        error_str: The error message string
+
+    Returns:
+        Status code as int, or None if not found
+    """
+    match = re.search(r"HTTP (\d{3})", error_str)
+    if match:
+        return int(match.group(1))
+    return None
+
+
+async def _fetch_core(
+    url: str,
+    config: Config,
+    timeout: float | None = None,
+    *,
+    return_bytes: bool = False,
+) -> "_FetchResult":
+    """Core fetch logic shared between text and bytes fetchers.
+
+    Performs security validation, applies request delay/jitter, makes HTTP
+    request using tls-client with Chrome TLS fingerprint, and content-length checking.
+
+    Args:
+        url: The URL to fetch
+        config: Configuration object
+        timeout: Optional override for request timeout (seconds)
+        return_bytes: If True, return bytes; if False, return text
+
+    Returns:
+        _FetchResult with content, content-type, final URL, and status code
+
+    Raises:
+        FetchError: If the URL cannot be fetched or fails security checks
+        ContentLengthExceededError: If content exceeds the limit
+        RetryableFetchError: For transient errors that can be retried
+    """
+    request_timeout = timeout if timeout is not None else float(config.request_timeout)
+
+    if not validate_url(url):
+        raise FetchError(f"Invalid URL format: {url}")
+
+    if not validate_url_no_credentials(url):
+        raise FetchError("URL with credentials not allowed - potential injection attack")
+
+    if not validate_url_ip(url):
+        raise FetchError("URL resolves to private IP address - SSRF attempt blocked")
+
+    # Apply request delay/jitter before every request
+    await _apply_request_delay(config)
+
+    try:
+        headers = config.http_headers_with_referer(url)
+
+        response_data: Dict[str, Any] = await fetch_with_tls_raw(
+            url=url,
+            headers=headers,
+            client_identifier=config.tls_client_identifier,
+            timeout_seconds=int(request_timeout),
+        )
+
+        content_raw: str = response_data["content"]
+        status_code: int = response_data.get("status_code", 200)
+
+        # Check if we should retry based on status code
+        if _should_retry_response(status_code):
+            raise RetryableFetchError(f"HTTP {status_code}: {content_raw[:200]}")
+
+        # Handle content length for text
+        if not return_bytes:
+            total_chars = 0
+            # Simulate streaming by checking chunks
+            text_chunks: list[str] = [content_raw]
+            for chunk in text_chunks:
+                total_chars += len(chunk)
+                if total_chars > config.max_content_length:
+                    raise ContentLengthExceededError(
+                        f"Response size ({total_chars} chars) exceeds maximum allowed "
+                        f"({config.max_content_length} bytes)"
+                    )
+
+            return _FetchResult(
+                content="".join(text_chunks),
+                content_type=response_data.get("headers", {}).get(
+                    "Content-Type", "text/html; charset=utf-8"
+                ),
+                final_url=url,
+                status_code=status_code,
+            )
+        else:
+            # Handle content length for bytes
+            content_bytes = content_raw.encode("utf-8", errors="replace")
+            if len(content_bytes) > config.max_content_length:
+                raise ContentLengthExceededError(
+                    f"Response size ({len(content_bytes)} bytes) exceeds maximum allowed "
+                    f"({config.max_content_length} bytes)"
+                )
+
+            return _FetchResult(
+                content=content_bytes,
+                content_type=response_data.get("headers", {}).get(
+                    "Content-Type", "application/octet-stream"
+                ),
+                final_url=url,
+                status_code=status_code,
+            )
+
+    except RetryableFetchError:
+        raise
+    except ContentLengthExceededError:
+        raise
+    except TlsFetchError as e:
+        error_str = str(e)
+        status_code = _extract_status_code(error_str)
+
+        if status_code and _should_retry_response(status_code):
+            raise RetryableFetchError(f"HTTP {status_code}: {e}")
+
+        # Network errors (no HTTP status code) are retryable
+        if "network" in error_str.lower() or "connection" in error_str.lower():
+            raise RetryableFetchError(str(e))
+
+        logger.error(f"TLS fetch error for URL {url}: {e}")
+        raise FetchError(str(e))
+
+
+@dataclass
+class _FetchResult:
+    """Internal result of a fetch operation."""
+
+    content: str | bytes
+    content_type: str
+    final_url: str
+    status_code: int
 
 
 class RedirectValidator:
@@ -187,6 +271,9 @@ class RedirectValidator:
 
     Ensures that each redirect target passes SSRF protection and
     whitelist/blacklist checks before being followed.
+
+    Note: tls-client follows redirects automatically, so this validator
+    is kept for future use with custom redirect handling.
     """
 
     def __init__(self, max_redirects: int = 5):
@@ -238,124 +325,16 @@ class RedirectValidator:
         self._redirect_count = 0
 
 
-@dataclass
-class _FetchResult:
-    """Internal result of a fetch operation."""
+def get_connection_pool():
+    """Get the global connection pool.
 
-    content: str | bytes
-    content_type: str
-    final_url: str
-    response: httpx.Response
-
-
-async def _fetch_core(
-    url: str,
-    config: Config,
-    timeout: float | None = None,
-    *,
-    return_bytes: bool = False,
-) -> _FetchResult:
-    """Core fetch logic shared between text and bytes fetchers.
-
-    Performs security validation, HTTP request, and content-length checking.
-    Uses streaming to avoid loading large responses into memory unnecessarily.
-
-    Args:
-        url: The URL to fetch
-        config: Configuration object
-        timeout: Optional override for request timeout (httpx uses float)
-        return_bytes: If True, return bytes; if False, return text
+    Deprecated: tls-client is now used as the primary fetcher.
+    This function exists for backward compatibility with tests.
 
     Returns:
-        _FetchResult with content, content-type, final URL, and response
-
-    Raises:
-        FetchError: If the URL cannot be fetched or fails security checks
-        ContentLengthExceededError: If content exceeds the limit
-        RetryableFetchError: For transient errors that can be retried
+        None (no longer used)
     """
-    request_timeout = timeout if timeout is not None else float(config.request_timeout)
-
-    if not validate_url(url):
-        raise FetchError(f"Invalid URL format: {url}")
-
-    if not validate_url_no_credentials(url):
-        raise FetchError("URL with credentials not allowed - potential injection attack")
-
-    if not validate_url_ip(url):
-        raise FetchError("URL resolves to private IP address - SSRF attempt blocked")
-
-    try:
-        client = get_connection_pool()
-        response = await client.get(
-            url,
-            timeout=request_timeout,
-            follow_redirects=True,
-            headers={"User-Agent": config.user_agent},
-        )
-
-        content_length = response.headers.get("content-length")
-        if content_length is not None:
-            try:
-                cl = int(content_length)
-                if cl > config.max_content_length:
-                    raise ContentLengthExceededError(
-                        f"Content-Length ({cl} bytes) exceeds maximum allowed "
-                        f"({config.max_content_length} bytes)"
-                    )
-            except ValueError:
-                logger.warning(f"Invalid Content-Length header value: {content_length}")
-
-        if return_bytes:
-            total_bytes = 0
-            chunks: list[bytes] = []
-            async for chunk in response.aiter_bytes():
-                total_bytes += len(chunk)
-                if total_bytes > config.max_content_length:
-                    raise ContentLengthExceededError(
-                        f"Response size ({total_bytes} bytes) exceeds maximum allowed "
-                        f"({config.max_content_length} bytes)"
-                    )
-                chunks.append(chunk)
-            content: str | bytes = b"".join(chunks)
-        else:
-            total_bytes = 0
-            text_chunks: list[str] = []
-            async for chunk in response.aiter_text():
-                total_bytes += len(chunk)
-                if total_bytes > config.max_content_length:
-                    raise ContentLengthExceededError(
-                        f"Response size ({total_bytes} bytes) exceeds maximum allowed "
-                        f"({config.max_content_length} bytes)"
-                    )
-                text_chunks.append(chunk)
-            content = "".join(text_chunks)
-
-        response.raise_for_status()
-
-        content_type = response.headers.get("content-type", "application/octet-stream")
-
-        return _FetchResult(
-            content=content,
-            content_type=content_type,
-            final_url=str(response.url),
-            response=response,
-        )
-
-    except httpx.TimeoutException as e:
-        logger.error(f"Request timed out for URL {url}: {e}")
-        raise RetryableFetchError(f"Request timed out: {e}")
-    except ContentLengthExceededError:
-        raise
-    except httpx.HTTPStatusError as e:
-        logger.error(f"HTTP error for URL {url}: {e}")
-        status_code = e.response.status_code
-        if status_code == 429 or (500 <= status_code < 600):
-            raise RetryableFetchError(f"HTTP error {status_code}: {e}")
-        raise FetchError(f"HTTP error {status_code}: {e}")
-    except httpx.RequestError as e:
-        logger.error(f"Request failed for URL {url}: {e}")
-        raise RetryableFetchError(f"Request failed: {e}")
+    return None
 
 
 async def _fetch_with_redirect_validation(
@@ -386,7 +365,7 @@ async def _fetch_with_redirect_validation(
 @with_retry(
     max_attempts=3,
     base_delay=1.0,
-    retryable_exceptions=(httpx.ConnectError, httpx.TimeoutException, RetryableFetchError),
+    retryable_exceptions=(TlsFetchError, RetryableFetchError),
     jitter=True,
 )
 async def fetch_url(url: str, config: Config, timeout: float | None = None) -> str:
@@ -396,7 +375,11 @@ async def fetch_url(url: str, config: Config, timeout: float | None = None) -> s
     - URL format validation
     - Credential injection prevention
     - SSRF protection via DNS resolution and IP validation
-    - Redirect validation to prevent SSRF via redirect chains
+    - Request delay/jitter to avoid detection patterns
+
+    Uses tls-client with a Chrome 120 TLS fingerprint (JA3/JA4) to bypass
+    anti-bot detection systems. On 403 errors, the retry decorator will attempt
+    up to 3 times before raising.
 
     Args:
         url: The URL to fetch
@@ -445,9 +428,10 @@ async def fetch_url_cached(url: str, config: Config, timeout: float | None = Non
 
 
 async def fetch_url_with_fallback(url: str, config: Config, timeout: float | None = None) -> str:
-    """Fetch URL with httpx, fallback to Playwright for JS-heavy pages.
+    """Fetch URL with tls-client, fallback to Playwright for JS-heavy pages.
 
-    First attempts to fetch with httpx. If the response is below the
+    First attempts to fetch with tls-client (Chrome TLS fingerprint). If the
+    response indicates anti-bot detection (403) or content is below the
     configured threshold (indicating possible JS-rendered content),
     falls back to Playwright for full browser rendering.
 
@@ -457,10 +441,10 @@ async def fetch_url_with_fallback(url: str, config: Config, timeout: float | Non
         timeout: Optional override for request timeout
 
     Returns:
-        HTML content (either from httpx or Playwright)
+        HTML content (either from tls-client or Playwright)
 
     Raises:
-        FetchError: If both httpx and Playwright fail
+        FetchError: If both tls-client and Playwright fail
         ContentLengthExceededError: If content exceeds the limit
     """
     from web_mcp.playwright_fetcher import (
@@ -485,7 +469,7 @@ async def fetch_url_with_fallback(url: str, config: Config, timeout: float | Non
 
     except FetchError as e:
         if config.playwright_enabled:
-            logger.info(f"httpx fetch failed, trying Playwright: {e}")
+            logger.info(f"tls-client fetch failed, trying Playwright: {e}")
             try:
                 return await fetch_with_playwright_cached(url, config)
             except PlaywrightFetchError as pe:
@@ -495,8 +479,8 @@ async def fetch_url_with_fallback(url: str, config: Config, timeout: float | Non
 
 
 async def close_pool() -> None:
-    """Close the connection pool. For cleanup."""
-    close_connection_pool()
+    """Close the connection pool. No-op since tls-client doesn't use a persistent pool."""
+    pass
 
 
 @dataclass
@@ -537,7 +521,7 @@ async def _fetch_url_with_metadata_internal(
 @with_retry(
     max_attempts=3,
     base_delay=1.0,
-    retryable_exceptions=(httpx.ConnectError, httpx.TimeoutException, RetryableFetchError),
+    retryable_exceptions=(TlsFetchError, RetryableFetchError),
     jitter=True,
 )
 async def fetch_url_with_metadata(
@@ -547,6 +531,9 @@ async def fetch_url_with_metadata(
 
     Returns both the raw content (as bytes) and the content-type header.
     This is useful for handling non-HTML content like PDFs.
+
+    Uses tls-client with a Chrome 120 TLS fingerprint (JA3/JA4) to bypass
+    anti-bot detection systems.
 
     Args:
         url: The URL to fetch
