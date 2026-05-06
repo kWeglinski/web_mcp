@@ -23,8 +23,8 @@ from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cl
 from web_mcp.extractors.custom import CustomSelectorExtractor
 from web_mcp.extractors.trafilatura import TrafilaturaExtractor
 from web_mcp.fetcher import (
-    FetchError,
     FetchedContent,
+    FetchError,
     fetch_url_with_metadata,
 )
 from web_mcp.logging import get_logger, setup_logging
@@ -355,8 +355,11 @@ async def get_page(
             logger.info(f"tls-client fetch failed ({e}), trying Playwright fallback for: {url}")
             try:
                 from web_mcp.playwright_fetcher import fetch_with_playwright_cached as pw_cached
+
                 html = await pw_cached(url, config)
-                fetched = FetchedContent(content=html.encode("utf-8"), content_type="text/html", url=url)
+                fetched = FetchedContent(
+                    content=html.encode("utf-8"), content_type="text/html", url=url
+                )
             except PlaywrightFetchError as pe:
                 return f"Error fetching URL (tls-client and Playwright both failed): {pe}"
         else:
