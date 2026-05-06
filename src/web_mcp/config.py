@@ -199,9 +199,7 @@ class Config:
                 f"request_delay_max ({self.request_delay_max})"
             )
 
-        self.tls_client_identifier: str = os.environ.get(
-            ENV_TLS_CLIENT_IDENTIFIER, "chrome120"
-        )
+        self.tls_client_identifier: str = os.environ.get(ENV_TLS_CLIENT_IDENTIFIER, "chrome120")
 
         self.referer: str = os.environ.get(ENV_REFERER, "")
 

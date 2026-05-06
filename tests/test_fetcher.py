@@ -131,9 +131,7 @@ class TestFetchUrl:
             await fetch_url("https://user:pass@example.com", config)
 
         # URL with embedded credentials is rejected as invalid
-        assert "Invalid URL" in str(exc_info.value) or "credentials" in str(
-            exc_info.value
-        ).lower()
+        assert "Invalid URL" in str(exc_info.value) or "credentials" in str(exc_info.value).lower()
 
 
 class TestFetchError:
