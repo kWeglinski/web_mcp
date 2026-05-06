@@ -76,9 +76,7 @@ def _fetch_with_tls_sync(
 
     status_code = response.status_code
     if status_code >= 400:
-        raise TlsFetchError(
-            f"HTTP {status_code} from {url}"
-        )
+        raise TlsFetchError(f"HTTP {status_code} from {url}")
 
     return response.text
 
@@ -143,9 +141,7 @@ async def fetch_with_tls_raw(
     session.timeout = timeout_seconds
 
     try:
-        response = await asyncio.to_thread(
-            session.get, url, headers=headers or {}
-        )
+        response = await asyncio.to_thread(session.get, url, headers=headers or {})
     except Exception as e:
         if _is_tls_error_retryable(e):
             raise TlsFetchError(f"Network error: {e}")

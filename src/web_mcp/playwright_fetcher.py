@@ -124,14 +124,12 @@ async def get_browser_context():
             locale="en-US",
             timezone_id="America/New_York",
         )
-        await _browser_context.add_init_script(
-            """
+        await _browser_context.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {get: () => undefined});
             Object.defineProperty(navigator, 'plugins', {get: () => [1, 2, 3, 4, 5]});
             Object.defineProperty(navigator, 'languages', {get: () => ['en-US', 'en']});
             window.chrome = {runtime: {}};
-            """
-        )
+            """)
         return _browser_context
     except ImportError:
         raise PlaywrightFetchError("Playwright is not installed. Run: uv pip install playwright")
