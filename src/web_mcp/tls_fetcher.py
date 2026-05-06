@@ -8,6 +8,8 @@ check the TLS handshake rather than just HTTP headers.
 import asyncio
 from typing import Any
 
+import tls_client
+
 from web_mcp.logging_utils import get_logger
 
 logger = get_logger(__name__)
@@ -44,6 +46,7 @@ def _fetch_with_tls_sync(
     headers: dict[str, str],
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
+    proxy: str | None = None,
 ) -> str:
     """Synchronous tls-client fetch (runs in threadpool).
 
@@ -52,6 +55,7 @@ def _fetch_with_tls_sync(
         headers: HTTP headers to send
         client_identifier: TLS fingerprint preset (default Chrome 120)
         timeout_seconds: Request timeout in seconds
+        proxy: Proxy URL to use (e.g., 'http://user:pass@host:port')
 
     Returns:
         Response text content
@@ -59,13 +63,10 @@ def _fetch_with_tls_sync(
     Raises:
         TlsFetchError: If the request fails
     """
-    try:
-        import tls_client
-    except ImportError:
-        raise TlsFetchError("tls-client is not installed")
-
     session = tls_client.Session(client_identifier=client_identifier)
     session.timeout = timeout_seconds
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
 
     try:
         response = session.get(url, headers=headers)
@@ -86,6 +87,7 @@ async def fetch_with_tls(
     headers: dict[str, str],
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
+    proxy: str | None = None,
 ) -> str:
     """Fetch URL using tls-client with Chrome TLS fingerprint.
 
@@ -97,6 +99,7 @@ async def fetch_with_tls(
         headers: HTTP headers to send (overrides tls-client defaults)
         client_identifier: TLS fingerprint preset (default Chrome 120)
         timeout_seconds: Request timeout in seconds
+        proxy: Proxy URL to use (e.g., 'http://user:pass@host:port')
 
     Returns:
         Response text content
@@ -110,6 +113,7 @@ async def fetch_with_tls(
         headers,
         client_identifier,
         timeout_seconds,
+        proxy,
     )
 
 
@@ -118,6 +122,7 @@ async def fetch_with_tls_raw(
     headers: dict[str, str] | None = None,
     client_identifier: str = "chrome120",
     timeout_seconds: int = 30,
+    proxy: str | None = None,
 ) -> dict[str, Any]:
     """Fetch URL using tls-client and return full response metadata.
 
@@ -126,19 +131,15 @@ async def fetch_with_tls_raw(
         headers: HTTP headers to send
         client_identifier: TLS fingerprint preset
         timeout_seconds: Request timeout in seconds
+        proxy: Proxy URL to use (e.g., 'http://user:pass@host:port')
 
     Returns:
         Dict with 'content', 'status_code', and 'headers' keys
     """
-    import asyncio
-
-    try:
-        import tls_client
-    except ImportError:
-        raise TlsFetchError("tls-client is not installed")
-
     session = tls_client.Session(client_identifier=client_identifier)
     session.timeout = timeout_seconds
+    if proxy:
+        session.proxies = {"http": proxy, "https": proxy}
 
     try:
         response = await asyncio.to_thread(session.get, url, headers=headers or {})

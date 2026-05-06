@@ -88,7 +88,7 @@ class PlaywrightFetchError(Exception):
         self.message = message
 
 
-async def get_browser_context():
+async def get_browser_context(proxy: str | None = None):
     """Get or create the shared Playwright browser context.
 
     Returns:
@@ -108,15 +108,19 @@ async def get_browser_context():
                 "or: uv run playwright install chromium"
             )
 
-        _playwright_instance = await async_playwright().start()
-        browser = await _playwright_instance.chromium.launch(
-            headless=True,
-            args=[
+        launch_kwargs = {
+            "headless": True,
+            "args": [
                 "--disable-blink-features=AutomationControlled",
                 "--disable-dev-shm-usage",
                 "--no-sandbox",
             ],
-        )
+        }
+        if proxy:
+            launch_kwargs["proxy"] = {"server": proxy}
+
+        _playwright_instance = await async_playwright().start()
+        browser = await _playwright_instance.chromium.launch(**launch_kwargs)
         _browser_context = await browser.new_context(
             user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             viewport={"width": 1920, "height": 1080},
@@ -153,6 +157,7 @@ async def fetch_with_playwright(
     timeout: int = 30000,
     wait_for_selector: str | None = None,
     wait_time: int = 1000,
+    proxy: str | None = None,
 ) -> str:
     """Fetch a URL using Playwright for JavaScript rendering.
 
@@ -161,6 +166,7 @@ async def fetch_with_playwright(
         timeout: Page load timeout in milliseconds
         wait_for_selector: Optional CSS selector to wait for
         wait_time: Additional wait time after page load in milliseconds
+        proxy: Proxy URL to use (e.g., 'http://user:pass@host:port')
 
     Returns:
         Rendered HTML content
@@ -178,7 +184,7 @@ async def fetch_with_playwright(
         raise PlaywrightFetchError("URL resolves to private IP address - SSRF attempt blocked")
 
     try:
-        context = await get_browser_context()
+        context = await get_browser_context(proxy=proxy)
         page = await context.new_page()
 
         try:
@@ -239,6 +245,7 @@ async def fetch_with_playwright_cached(
     result = await fetch_with_playwright(
         url,
         timeout=timeout or config.playwright_timeout,
+        proxy=config.proxy_url,
     )
 
     cache.set(cache_key, result, ttl=config.cache_ttl)

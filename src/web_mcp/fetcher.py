@@ -105,6 +105,7 @@ async def _fetch_with_size_limit(
             headers=headers,
             client_identifier=config.tls_client_identifier,
             timeout_seconds=int(config.request_timeout),
+            proxy=config.proxy_url,
         )
 
         content = response_data["content"]
@@ -189,6 +190,7 @@ async def _fetch_core(
             headers=headers,
             client_identifier=config.tls_client_identifier,
             timeout_seconds=int(request_timeout),
+            proxy=config.proxy_url,
         )
 
         content_raw: str = response_data["content"]

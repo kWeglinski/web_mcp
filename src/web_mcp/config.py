@@ -38,6 +38,8 @@ ENV_REQUEST_DELAY_MIN = "WEB_MCP_REQUEST_DELAY_MIN"
 ENV_REQUEST_DELAY_MAX = "WEB_MCP_REQUEST_DELAY_MAX"
 ENV_TLS_CLIENT_IDENTIFIER = "WEB_MCP_TLS_CLIENT_IDENTIFIER"
 ENV_REFERER = "WEB_MCP_REFERER"
+ENV_PROXY_URL = "WEB_MCP_PROXY_URL"
+
 
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
@@ -202,6 +204,8 @@ class Config:
         self.tls_client_identifier: str = os.environ.get(ENV_TLS_CLIENT_IDENTIFIER, "chrome120")
 
         self.referer: str = os.environ.get(ENV_REFERER, "")
+
+        self.proxy_url: str | None = os.environ.get(ENV_PROXY_URL, None)
 
     @property
     def http_headers(self) -> dict[str, str]:
