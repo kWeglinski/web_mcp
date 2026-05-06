@@ -23,6 +23,7 @@ from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cl
 from web_mcp.extractors.custom import CustomSelectorExtractor
 from web_mcp.extractors.trafilatura import TrafilaturaExtractor
 from web_mcp.fetcher import (
+    FetchedContent,
     FetchError,
     fetch_url_with_metadata,
 )
@@ -349,8 +350,20 @@ async def get_page(
 
     try:
         fetched = await fetch_url_with_metadata(url, config)
-    except (FetchError, PlaywrightFetchError) as e:
-        return f"Error fetching URL: {e}"
+    except FetchError as e:
+        if config.playwright_enabled:
+            logger.info(f"tls-client fetch failed ({e}), trying Playwright fallback for: {url}")
+            try:
+                from web_mcp.playwright_fetcher import fetch_with_playwright_cached as pw_cached
+
+                html = await pw_cached(url, config)
+                fetched = FetchedContent(
+                    content=html.encode("utf-8"), content_type="text/html", url=url
+                )
+            except PlaywrightFetchError as pe:
+                return f"Error fetching URL (tls-client and Playwright both failed): {pe}"
+        else:
+            return f"Error fetching URL: {e}"
 
     if is_pdf_content_type(fetched.content_type):
         markdown_text = _pdf_cache.get(url)
