@@ -1,6 +1,6 @@
 """Unit tests for the fetcher module."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -343,6 +343,7 @@ class TestHeadersAndReferer:
     async def test_custom_referer_from_config(self):
         """Test that custom Referer from config is used."""
         import os
+
         from web_mcp.config import Config, reset_config
 
         with patch("web_mcp.fetcher.fetch_with_tls_raw") as mock_fetch:

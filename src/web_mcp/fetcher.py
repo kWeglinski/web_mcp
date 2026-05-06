@@ -4,7 +4,7 @@ import asyncio
 import random
 import re
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any
 
 from web_mcp.cache import get_cache
 from web_mcp.config import Config
@@ -184,7 +184,7 @@ async def _fetch_core(
     try:
         headers = config.http_headers_with_referer(url)
 
-        response_data: Dict[str, Any] = await fetch_with_tls_raw(
+        response_data: dict[str, Any] = await fetch_with_tls_raw(
             url=url,
             headers=headers,
             client_identifier=config.tls_client_identifier,
