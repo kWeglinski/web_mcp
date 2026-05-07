@@ -14,6 +14,14 @@ def event_loop():
     loop.close()
 
 
+@pytest.fixture(autouse=True)
+def _reset_search_cache():
+    """Reset search cache before each test to avoid cross-test pollution."""
+    from web_mcp.searxng import reset_search_cache
+
+    reset_search_cache()
+
+
 @pytest.fixture
 def mock_httpx_client():
     """Create a mock httpx.AsyncClient."""

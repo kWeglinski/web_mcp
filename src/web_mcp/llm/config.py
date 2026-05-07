@@ -54,6 +54,9 @@ class ResearchConfig:
     rerank_enabled: bool = field(
         default_factory=lambda: os.environ.get("WEB_MCP_RERANK_ENABLED", "true").lower() == "true"
     )
+    rewrite_enabled: bool = field(
+        default_factory=lambda: os.environ.get("WEB_MCP_REWRITE_ENABLED", "true").lower() == "true"
+    )
     embedding_cache_size: int = field(
         default_factory=lambda: int(os.environ.get("WEB_MCP_EMBEDDING_CACHE_SIZE", "1000"))
     )

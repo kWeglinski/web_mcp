@@ -125,47 +125,6 @@ def diversity_score(chunk: EmbeddedChunk, selected_urls: dict) -> float:
         return 1.0
 
 
-def select_diverse_chunks(
-    chunks: list[tuple[EmbeddedChunk, float]],
-    max_per_source: int = 3,
-    total_chunks: int = 15,
-) -> list[tuple[EmbeddedChunk, float]]:
-    """Select chunks while promoting source diversity.
-
-    Limits the number of chunks from any single URL to ensure
-    broader coverage across sources. Uses a scoring system that
-    balances relevance with diversity.
-
-    Args:
-        chunks: List of (chunk, score) tuples, sorted by score
-        max_per_source: Maximum chunks allowed from same URL
-        total_chunks: Total number of chunks to return
-
-    Returns:
-        Diversified list of (chunk, score) tuples
-    """
-    source_counts = {}
-    selected = []
-
-    for chunk, score in chunks:
-        url = chunk.source_url
-
-        # Track count per source
-        if url not in source_counts:
-            source_counts[url] = 0
-
-        # Check if we can add this chunk
-        if source_counts[url] < max_per_source:
-            selected.append((chunk, score))
-            source_counts[url] += 1
-
-        # Check if we have enough
-        if len(selected) >= total_chunks:
-            break
-
-    return selected
-
-
 def select_diverse_chunks_v2(
     chunks: list[tuple[EmbeddedChunk, float]],
     max_per_source: int = 3,
@@ -220,52 +179,3 @@ def select_diverse_chunks_v2(
     # Sort by combined score and return
     selected.sort(key=lambda x: x[1], reverse=True)
     return selected
-
-
-def select_diverse_chunks_rerank(
-    chunks: list[tuple[EmbeddedChunk, float]],
-    max_per_source: int = 3,
-    total_chunks: int = 15,
-) -> list[tuple[EmbeddedChunk, float]]:
-    """Select diverse chunks with reranking based on combined scores.
-
-    This version first applies diversity scoring to all candidates,
-    then reranks them based on the combined score.
-
-    Args:
-        chunks: List of (chunk, score) tuples, sorted by score
-        max_per_source: Maximum chunks allowed from same URL
-        total_chunks: Total number of chunks to return
-
-    Returns:
-        Diversified and reranked list of (chunk, combined_score) tuples
-    """
-    if not chunks:
-        return []
-
-    source_counts = {}
-    scored_chunks = []
-
-    for chunk, score in chunks:
-        url = chunk.source_url
-
-        # Track count per source
-        if url not in source_counts:
-            source_counts[url] = 0
-
-        count = source_counts[url]
-
-        # Calculate diversity penalty
-        if count >= max_per_source:
-            continue
-
-        diversity_bonus = 1.0 - (count / (max_per_source + 1))
-        combined_score = score * diversity_bonus
-
-        scored_chunks.append((chunk, combined_score))
-        source_counts[url] += 1
-
-    # Sort by combined score
-    scored_chunks.sort(key=lambda x: x[1], reverse=True)
-
-    return scored_chunks[:total_chunks]

@@ -5,12 +5,20 @@ import logging
 import os
 import re
 import time
+import time as _time
 import urllib.parse
+from collections import defaultdict
+from dataclasses import dataclass, field
 from datetime import datetime
 
 import httpx
 
+from web_mcp.cache import LRUCache
+
 logger = logging.getLogger(__name__)
+
+_SEARCH_CACHE_TTL = 300
+_search_cache: LRUCache | None = None
 
 INSTANCES_URL = "https://searx.space/data/instances.json"
 INSTANCES_CACHE_TTL = 3600
@@ -19,8 +27,125 @@ MAX_RETRIES = 3
 
 _instances_cache: tuple[float, list[str]] = (0, [])
 _blacklist: dict[str, float] = {}
+
+
+@dataclass
+class SearchMetrics:
+    total_queries: int = 0
+    cache_hits: int = 0
+    provider_success: dict = field(default_factory=lambda: defaultdict(int))
+    provider_failures: dict = field(default_factory=lambda: defaultdict(int))
+    latencies: list = field(default_factory=list)
+
+
+_search_metrics = SearchMetrics()
+_MAX_LATENCY_HISTORY = 100
+
+
+@dataclass
+class InstanceStats:
+    url: str
+    success_count: int = 0
+    failure_count: int = 0
+    total_latency_ms: float = 0.0
+
+
+_instance_stats: dict[str, InstanceStats] = {}
+
+
+def _get_instance_score(instance_url: str) -> float:
+    """Calculate a score for instance selection (higher = better)."""
+    stats = _instance_stats.get(instance_url)
+    if not stats:
+        return 1.0
+
+    total = stats.success_count + stats.failure_count
+    if total < 3:
+        return 1.0
+
+    success_rate = stats.success_count / total
+    avg_latency = stats.total_latency_ms / total
+
+    latency_score = max(0.1, 1.0 - (avg_latency - 500) / 4500)
+
+    return success_rate * latency_score
+
+
+def _record_instance_result(url: str, success: bool, latency_ms: float) -> None:
+    if url not in _instance_stats:
+        _instance_stats[url] = InstanceStats(url=url)
+
+    stats = _instance_stats[url]
+    if success:
+        stats.success_count += 1
+    else:
+        stats.failure_count += 1
+    stats.total_latency_ms += latency_ms
+
+
+def reset_instance_stats() -> None:
+    """Reset instance stats (for testing)."""
+    _instance_stats.clear()
+
+
+def _record_search(provider: str, success: bool, latency_ms: float) -> None:
+    _search_metrics.total_queries += 1
+    if success:
+        _search_metrics.provider_success[provider] += 1
+    else:
+        _search_metrics.provider_failures[provider] += 1
+    _search_metrics.latencies.append((provider, latency_ms))
+    if len(_search_metrics.latencies) > _MAX_LATENCY_HISTORY:
+        _search_metrics.latencies.pop(0)
+
+
+def get_search_metrics() -> dict:
+    """Get search analytics as a serializable dict."""
+    total = _search_metrics.total_queries or 1
+    return {
+        "total_queries": _search_metrics.total_queries,
+        "cache_hit_rate": round(_search_metrics.cache_hits / total, 3),
+        "provider_success_rates": {
+            p: round(_search_metrics.provider_success[p] / total, 3)
+            for p in _search_metrics.provider_success
+        },
+        "provider_failures": dict(_search_metrics.provider_failures),
+        "avg_latency_ms": (
+            round(
+                sum(latency for _, latency in _search_metrics.latencies)
+                / len(_search_metrics.latencies),
+                1,
+            )
+            if _search_metrics.latencies
+            else None
+        ),
+    }
+
+
+def reset_search_metrics() -> None:
+    """Reset metrics (for testing)."""
+    _search_metrics.total_queries = 0
+    _search_metrics.cache_hits = 0
+    _search_metrics.provider_success.clear()
+    _search_metrics.provider_failures.clear()
+    _search_metrics.latencies.clear()
+
+
 _search_queue: asyncio.Queue | None = None
 _search_worker_running: bool = False
+
+
+def _get_search_cache() -> LRUCache:
+    global _search_cache
+    if _search_cache is None:
+        _search_cache = LRUCache(max_size=50)
+    return _search_cache
+
+
+def reset_search_cache() -> None:
+    """Reset the search cache. For testing purposes."""
+    global _search_cache
+    _search_cache = None
 
 
 def remove_html_tags(text: str | None) -> str:
@@ -203,14 +328,16 @@ def _is_failure_response(data: dict | None, status_code: int) -> bool:
     return False
 
 
-async def search(query: str, max_results: int = 10) -> list[dict]:
+async def search(query: str, max_results: int = 10, time_range: str | None = None) -> list[dict]:
     """Search using SearXNG with automatic fallback to public instances and DuckDuckGo.
 
     Requests are queued and executed sequentially to avoid rate limiting.
+    Results are cached for 5 minutes keyed on (query, max_results).
 
     Args:
         query: The search query string
         max_results: Maximum number of results to return (default: 10)
+        time_range: Time range filter: day, week, month, or year
 
     Returns:
         List of search result dictionaries with title, url, and snippet
@@ -218,6 +345,15 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
     Raises:
         SearXNGError: If all search attempts fail
     """
+    start_time = _time.time()
+    cache = _get_search_cache()
+    cache_key = f"{query}:{max_results}"
+
+    cached = cache.get(cache_key)
+    if cached is not None:
+        logger.info(f"[SearXNG] Cache hit for query: {query}")
+        return cached
+
     global _search_queue
 
     loop = asyncio.get_event_loop()
@@ -226,12 +362,21 @@ async def search(query: str, max_results: int = 10) -> list[dict]:
     if _search_queue is None:
         _search_queue = asyncio.Queue()
 
-    await _search_queue.put((query, max_results, result_future))
+    await _search_queue.put((query, max_results, result_future, time_range))
 
     if _search_queue.qsize() == 1:
         asyncio.create_task(_process_search_queue())
 
-    return await result_future
+    result = await result_future
+    cache.set(cache_key, result, ttl=_SEARCH_CACHE_TTL)
+
+    elapsed_ms = (_time.time() - start_time) * 1000
+    if result:
+        _record_search("searxng", True, elapsed_ms)
+    else:
+        _record_search("searxng", False, elapsed_ms)
+
+    return result
 
 
 async def _process_search_queue():
@@ -239,10 +384,10 @@ async def _process_search_queue():
     global _search_queue
 
     while _search_queue and not _search_queue.empty():
-        query, max_results, result_future = await _search_queue.get()
+        query, max_results, result_future, time_range = await _search_queue.get()
 
         try:
-            result = await _search_impl(query, max_results)
+            result = await _search_impl(query, max_results, time_range)
             if not result_future.done():
                 result_future.set_result(result)
         except Exception as e:
@@ -252,7 +397,7 @@ async def _process_search_queue():
             _search_queue.task_done()
 
 
-async def _search_impl(query: str, max_results: int) -> list[dict]:
+async def _search_impl(query: str, max_results: int, time_range: str | None = None) -> list[dict]:
     """Internal search implementation."""
     import random
 
@@ -262,13 +407,20 @@ async def _search_impl(query: str, max_results: int) -> list[dict]:
         configured_url = configured_url.rstrip("/")
         if not _is_blacklisted(configured_url):
             logger.info(f"[SearXNG] Trying configured instance: {configured_url}")
+            start = time.time()
             try:
-                result = await _search_instance(configured_url, query, max_results)
+                result = await _search_instance(
+                    configured_url, query, max_results, time_range=time_range
+                )
+                elapsed_ms = (time.time() - start) * 1000
+                _record_instance_result(configured_url, True, elapsed_ms)
                 logger.info(
                     f"[SearXNG] Success from configured instance - got {len(result)} results"
                 )
                 return result
             except SearXNGError as e:
+                elapsed_ms = (time.time() - start) * 1000
+                _record_instance_result(configured_url, False, elapsed_ms)
                 logger.warning(f"[SearXNG] Configured instance failed: {e.message}")
                 _blacklist_instance(configured_url)
 
@@ -276,28 +428,51 @@ async def _search_impl(query: str, max_results: int) -> list[dict]:
     available_fallbacks = [u for u in fallbacks if not _is_blacklisted(u)]
 
     if available_fallbacks:
-        random.shuffle(available_fallbacks)
+        scored = [(u, _get_instance_score(u)) for u in available_fallbacks]
+        scored.sort(key=lambda x: x[1], reverse=True)
 
-        for attempt, instance_url in enumerate(available_fallbacks[:MAX_RETRIES], 1):
-            logger.info(f"[SearXNG] Fallback attempt {attempt} (Playwright): {instance_url}")
+        top_instances = [u for u, _ in scored[:MAX_RETRIES]]
+
+        if len(scored) > MAX_RETRIES and random.random() < 0.2:
+            lower = [u for u, s in scored[MAX_RETRIES:] if s > 0.5]
+            if lower:
+                top_instances[random.randint(0, len(top_instances) - 1)] = random.choice(lower)
+
+        for _attempt, instance_url in enumerate(top_instances):
+            start = time.time()
             try:
-                result = await _search_instance(instance_url, query, max_results, force_html=True)
+                result = await _search_instance(
+                    instance_url, query, max_results, time_range=time_range, force_html=True
+                )
+                elapsed_ms = (time.time() - start) * 1000
+                _record_instance_result(instance_url, True, elapsed_ms)
                 logger.info(f"[SearXNG] Success from fallback - got {len(result)} results")
                 return result
             except SearXNGError as e:
+                elapsed_ms = (time.time() - start) * 1000
+                _record_instance_result(instance_url, False, elapsed_ms)
                 logger.warning(f"[SearXNG] Fallback failed: {e.message}")
                 _blacklist_instance(instance_url)
-                continue
 
     logger.info("[SearXNG] All SearXNG instances failed, trying DuckDuckGo fallback")
+    start = time.time()
     try:
-        return await _search_duckduckgo(query, max_results)
+        result = await _search_duckduckgo(query, max_results)
+        elapsed_ms = (time.time() - start) * 1000
+        _record_instance_result("duckduckgo", True, elapsed_ms)
+        return result
     except SearXNGError as e:
+        elapsed_ms = (time.time() - start) * 1000
+        _record_instance_result("duckduckgo", False, elapsed_ms)
         raise SearXNGError(f"All SearXNG attempts failed and DuckDuckGo failed: {e.message}")
 
 
 async def _search_instance(
-    instance_url: str, query: str, max_results: int, force_html: bool = False
+    instance_url: str,
+    query: str,
+    max_results: int,
+    time_range: str | None = None,
+    force_html: bool = False,
 ) -> list[dict]:
     """Execute search against a single SearXNG instance.
 
@@ -318,15 +493,22 @@ async def _search_instance(
                 "pageno": 1,
                 "num_results": max_results,
             }
+            if time_range:
+                params["time_range"] = time_range
+
             response = await client.get(search_url, params=params, timeout=timeout)
 
             if response.status_code == 429:
                 logger.info("[SearXNG] JSON API rate limited (429), trying HTML fallback")
-                return await _search_instance_html(instance_url, query, max_results)
+                return await _search_instance_html(
+                    instance_url, query, max_results, time_range=time_range
+                )
 
             if response.status_code == 403:
                 logger.info("[SearXNG] JSON API blocked (403), trying HTML fallback")
-                return await _search_instance_html(instance_url, query, max_results)
+                return await _search_instance_html(
+                    instance_url, query, max_results, time_range=time_range
+                )
 
             response.raise_for_status()
 
@@ -336,7 +518,9 @@ async def _search_instance(
 
                 if not results:
                     logger.info("[SearXNG] JSON returned no results, trying HTML fallback")
-                    return await _search_instance_html(instance_url, query, max_results)
+                    return await _search_instance_html(
+                        instance_url, query, max_results, time_range=time_range
+                    )
 
                 formatted_results = []
                 for result in results:
@@ -357,21 +541,25 @@ async def _search_instance(
 
             except (ValueError, KeyError) as e:
                 logger.info(f"[SearXNG] JSON parse failed ({e}), trying HTML fallback")
-                return await _search_instance_html(instance_url, query, max_results)
+                return await _search_instance_html(
+                    instance_url, query, max_results, time_range=time_range
+                )
 
     except SearXNGError:
         raise
     except httpx.TimeoutException:
         logger.info("[SearXNG] HTTP timeout, trying HTML fallback")
-        return await _search_instance_html(instance_url, query, max_results)
+        return await _search_instance_html(instance_url, query, max_results, time_range=time_range)
     except httpx.HTTPStatusError as e:
         if e.response.status_code in (403, 406, 429):
             logger.info(f"[SearXNG] HTTP {e.response.status_code}, trying HTML fallback")
-            return await _search_instance_html(instance_url, query, max_results)
+            return await _search_instance_html(
+                instance_url, query, max_results, time_range=time_range
+            )
         raise SearXNGError(f"HTTP error {e.response.status_code}: {e}")
     except httpx.RequestError:
         logger.info("[SearXNG] HTTP request failed, trying HTML fallback")
-        return await _search_instance_html(instance_url, query, max_results)
+        return await _search_instance_html(instance_url, query, max_results, time_range=time_range)
     except Exception as e:
         raise SearXNGError(f"Search failed: {e}")
 
@@ -451,7 +639,9 @@ def _parse_searxng_html(html: str, max_results: int) -> list[dict]:
     return results
 
 
-async def _search_instance_html(instance_url: str, query: str, max_results: int) -> list[dict]:
+async def _search_instance_html(
+    instance_url: str, query: str, max_results: int, time_range: str | None = None
+) -> list[dict]:
     """Search using HTML scraping when JSON API is not available."""
     try:
         from web_mcp.playwright_fetcher import PlaywrightFetchError, fetch_with_playwright
@@ -460,6 +650,9 @@ async def _search_instance_html(instance_url: str, query: str, max_results: int)
 
     encoded_query = urllib.parse.quote(query)
     search_url = f"{instance_url}/search?q={encoded_query}"
+
+    if time_range:
+        search_url += f"&time={time_range}"
 
     logger.info(f"[SearXNG] Attempting HTML scrape of {search_url}")
 
@@ -611,6 +804,27 @@ def _parse_duckduckgo_html(html: str, max_results: int) -> list[dict]:
         )
 
     return results
+
+
+def deduplicate_results(results: list[dict]) -> list[dict]:
+    """Remove duplicate URLs, keeping the highest-scored version."""
+    seen: dict[str, int] = {}  # url -> index in result list
+    for i, r in enumerate(results):
+        url = (r.get("url") or "").rstrip("/")
+        if not url:
+            continue
+        existing = seen.get(url)
+        if existing is None:
+            seen[url] = i
+        else:
+            # Keep the one with higher score/bm25_score
+            existing_score = results[existing].get("score", 0) or results[existing].get(
+                "bm25_score", 0
+            )
+            new_score = r.get("score", 0) or r.get("bm25_score", 0)
+            if new_score > existing_score:
+                results[existing] = r
+    return [results[i] for i in seen.values()]
 
 
 def _parse_generic_search_html(html: str, max_results: int) -> list[dict]:

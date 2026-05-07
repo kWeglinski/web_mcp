@@ -38,7 +38,7 @@ from web_mcp.pdf_processor import (
 from web_mcp.playwright_fetcher import PlaywrightFetchError
 from web_mcp.research.bm25 import BM25
 from web_mcp.research.chunker import chunk_text
-from web_mcp.searxng import search
+from web_mcp.searxng import deduplicate_results, search
 from web_mcp.security import validate_url, validate_url_ip
 
 BM25_CHUNK_SIZE = 500
@@ -93,6 +93,8 @@ VERSION = "1.0.0"
 
 OUTPUT_SCHEMAS = os.environ.get("WEB_MCP_OUTPUT_SCHEMAS", "").lower() in ("true", "1", "yes")
 
+_SEARCH_PROVIDER = os.environ.get("WEB_MCP_SEARCH_PROVIDER", "searxng")  # searxng or brave
+
 setup_logging()
 
 logger = get_logger(__name__)
@@ -127,12 +129,17 @@ def get_health_metrics() -> dict:
     total_requests = _request_count + _cache_hits
     cache_hit_rate = (_cache_hits / total_requests) if total_requests > 0 else 0.0
 
+    from web_mcp.searxng import get_search_metrics
+
+    search = get_search_metrics()
+
     return {
         "status": "healthy",
         "version": VERSION,
         "cache_hit_rate": round(cache_hit_rate, 4),
         "request_count": _request_count,
         "uptime_seconds": round(uptime, 2),
+        "search": search,
     }
 
 
@@ -457,18 +464,35 @@ async def _search_web_brave_fallback(query: str) -> list[dict] | None:
     return None
 
 
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    structured_output=OUTPUT_SCHEMAS,
-)
-async def search_web(
-    query: str = Field(description="Search query"),
-) -> str:
-    """Search the web via SearXNG. Returns top 5 results ranked by BM25 relevance."""
+async def _search_brave(query: str) -> str:
+    """Primary Brave search implementation."""
+    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown
+    from web_mcp.brave import search as brave_search_impl
+
+    try:
+        results = await brave_search_impl(query, max_results=5)
+        if not results:
+            return "*No search results found*"
+
+        from web_mcp.research.bm25 import rerank_search_results
+
+        results = rerank_search_results(results, query)
+        json_data = {"web": {"results": results}}
+        return parse_brave_to_markdown(json_data, query, max_results=5)
+
+    except BraveSearchError as e:
+        return f"*Brave Search failed: {e.message}*"
+
+
+async def _search_searxng(query: str, time_range: str | None = None) -> str:
+    """Primary SearXNG search with Brave fallback implementation."""
     from web_mcp.searxng import parse_searxng_to_markdown
 
     try:
-        results = await search(query, 30)
+        results = await search(query, 30, time_range=time_range)
+
+        if results:
+            results = deduplicate_results(results)
 
         has_meaningful = any(
             r.get("score", 0) or r.get("bm25_score", 0) or (r.get("content") or r.get("snippet"))
@@ -507,15 +531,48 @@ async def search_web(
     annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
     structured_output=OUTPUT_SCHEMAS,
 )
+async def search_web(
+    query: str = Field(description="Search query"),
+    time_range: str | None = Field(
+        default=None, description="Time range filter: day, week, month, or year"
+    ),
+) -> str:
+    """Search the web via SearXNG. Returns top 5 results ranked by BM25 relevance."""
+    if _SEARCH_PROVIDER == "brave":
+        return await _search_brave(query)
+
+    return await _search_searxng(query, time_range=time_range)
+
+
+@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+async def search_metrics() -> dict:
+    """Get search analytics: provider success rates, cache hit rate, avg latency."""
+    from web_mcp.searxng import get_search_metrics
+
+    return get_search_metrics()
+
+
+@mcp.tool(
+    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+    structured_output=OUTPUT_SCHEMAS,
+)
 async def brave_search(
     query: str = Field(description="Search query"),
+    time_range: str | None = Field(
+        default=None,
+        description="Time range filter: day, week, month, year (SearXNG) or fresh/very_fresh (Brave)",
+    ),
 ) -> str:
-    """Search the web via Brave Search API. Returns top 5 results. Requires BRAVE_API_KEY environment variable."""
+    """Search the web via Brave Search API (primary). Use WEB_MCP_SEARCH_PROVIDER=brave to make it default."""
     from web_mcp.brave import BraveSearchError, parse_brave_to_markdown
     from web_mcp.brave import search as brave_search_impl
 
     try:
-        results = await brave_search_impl(query, max_results=5)
+        results = await brave_search_impl(query, max_results=5, time_range=time_range)
+
+        if results:
+            results = deduplicate_results(results)
+
         json_data = {
             "web": {
                 "results": [
@@ -841,7 +898,7 @@ def main():
     """Run the MCP server."""
     import sys
 
-    tools = "get_page, search_web, brave_search, create_chart_tool, render_html, current_datetime, health, run_javascript"
+    tools = "get_page, search_web, brave_search, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics"
 
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")

@@ -18,7 +18,25 @@ class TestTokenize:
 
     def test_tokenize_single_char_filtered(self):
         result = tokenize("a b c d")
-        assert result == []
+        assert result == ["a", "b", "c", "d"]
+
+    def test_tokenize_preserves_short_latin_tokens(self):
+        result = tokenize("AI and ML are used in the UK")
+        assert "ai" in result
+        assert "ml" in result
+        assert "uk" in result
+
+    def test_tokenize_handles_unicode(self):
+        result = tokenize("café and naïve")
+        assert "café" in result
+        assert "naïve" in result
+
+    def test_tokenize_filters_pure_numbers(self):
+        result = tokenize("test 123 abc456 789")
+        assert "test" in result
+        assert "abc456" in result
+        assert "123" not in result
+        assert "789" not in result
 
     def test_tokenize_numbers(self):
         result = tokenize("test123 abc456")
