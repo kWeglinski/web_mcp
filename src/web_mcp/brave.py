@@ -100,13 +100,16 @@ def parse_brave_to_markdown(
     return output
 
 
-async def search(query: str, max_results: int = 10, count: int = 20) -> list[dict]:
+async def search(
+    query: str, max_results: int = 10, count: int = 20, time_range: str | None = None
+) -> list[dict]:
     """Search using Brave Search API.
 
     Args:
         query: The search query string
         max_results: Maximum number of results to return (default: 10)
         count: Number of results to request from API (default: 20, max: 20)
+        time_range: Time range filter for Brave API (day/week/month/year maps to freshness)
 
     Returns:
         List of search result dictionaries with title, url, and snippet
@@ -127,10 +130,22 @@ async def search(query: str, max_results: int = 10, count: int = 20) -> list[dic
         "X-Subscription-Token": api_key,
     }
 
+    # Map time_range to Brave's freshness parameter
+    freshness_map = {
+        "day": "PD",
+        "week": "PW",
+        "month": "PM",
+        "year": "PY",
+    }
+
     params: dict[str, str | int] = {
         "q": query,
         "count": count,
     }
+
+    if time_range:
+        freshness = freshness_map.get(time_range.lower()) or time_range.lower()
+        params["freshness"] = freshness
 
     try:
         async with httpx.AsyncClient() as client:

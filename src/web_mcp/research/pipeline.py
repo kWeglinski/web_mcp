@@ -1,6 +1,7 @@
 """Research pipeline for web-grounded Q&A."""
 
 import asyncio
+import logging
 import time
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
@@ -19,8 +20,11 @@ from web_mcp.research.citations import (
     format_sources,
     validate_citations,
 )
-from web_mcp.research.reranking import rerank_chunks, select_diverse_chunks
-from web_mcp.searxng import SearXNGError, search
+from web_mcp.research.query_rewriting import generate_sub_queries, rewrite_query
+from web_mcp.research.reranking import rerank_chunks, select_diverse_chunks_v2
+from web_mcp.searxng import SearXNGError, deduplicate_results, search
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -45,33 +49,36 @@ class FetchedContent:
 
 _extractor = TrafilaturaExtractor()
 
+_FETCH_SEMAPHORE = asyncio.Semaphore(5)
+
 
 async def _fetch_and_extract(url: str, title: str) -> FetchedContent:
     """Fetch and extract content from a URL."""
-    config = get_config()
+    async with _FETCH_SEMAPHORE:
+        config = get_config()
 
-    try:
-        html = await fetch_url(url, config)
-        extracted = await _extractor.extract(html, url)
-        return FetchedContent(
-            url=url,
-            title=title or extracted.title or url,
-            text=extracted.text,
-        )
-    except FetchError as e:
-        return FetchedContent(
-            url=url,
-            title=title or url,
-            text="",
-            error=str(e),
-        )
-    except Exception as e:
-        return FetchedContent(
-            url=url,
-            title=title or url,
-            text="",
-            error=str(e),
-        )
+        try:
+            html = await fetch_url(url, config)
+            extracted = await _extractor.extract(html, url)
+            return FetchedContent(
+                url=url,
+                title=title or extracted.title or url,
+                text=extracted.text,
+            )
+        except FetchError as e:
+            return FetchedContent(
+                url=url,
+                title=title or url,
+                text="",
+                error=str(e),
+            )
+        except Exception as e:
+            return FetchedContent(
+                url=url,
+                title=title or url,
+                text="",
+                error=str(e),
+            )
 
 
 async def research(
@@ -101,17 +108,48 @@ async def research(
             query=query,
         )
 
-    try:
-        search_results_data = await search(query, search_results)
-    except SearXNGError as e:
-        return ResearchResult(
-            answer=f"Error: Search failed - {e}",
-            sources=[],
-            elapsed_ms=int((time.time() - start_time) * 1000),
-            query=query,
-        )
+    client = get_llm_client()
 
-    if not search_results_data:
+    effective_query = query
+    sub_queries = [query]
+
+    if research_config.rewrite_enabled and llm_config.is_configured:
+        try:
+            rewritten = await rewrite_query(client, query)
+            if rewritten and rewritten != query:
+                effective_query = rewritten
+        except Exception:
+            pass
+
+        try:
+            sub_queries = await generate_sub_queries(client, query)
+            if not sub_queries or len(sub_queries) == 0:
+                sub_queries = [query]
+        except Exception:
+            pass
+
+    all_search_results = []
+    if len(sub_queries) > 1 and research_config.rewrite_enabled:
+        semaphore = asyncio.Semaphore(3)
+
+        async def bounded_search(q):
+            async with semaphore:
+                return await search(q, max(3, research_config.search_results // len(sub_queries)))
+
+        tasks = [bounded_search(sq) for sq in sub_queries]
+        search_responses = await asyncio.gather(*tasks, return_exceptions=True)
+
+        for resp in search_responses:
+            if isinstance(resp, list):
+                all_search_results.extend(resp)
+            elif isinstance(resp, Exception):
+                logger.warning(f"Sub-query search failed: {resp}")
+    else:
+        all_search_results = await search(effective_query, research_config.search_results)
+
+    all_search_results = deduplicate_results(all_search_results)[: research_config.search_results]
+
+    if not all_search_results:
         return ResearchResult(
             answer="No search results found for your query.",
             sources=[],
@@ -121,7 +159,7 @@ async def research(
 
     urls_to_fetch = [
         (r.get("url", ""), r.get("title", ""))
-        for r in search_results_data[:search_results]
+        for r in all_search_results[:search_results]
         if r.get("url")
     ]
 
@@ -159,8 +197,6 @@ async def research(
             query=query,
         )
 
-    client = get_llm_client()
-
     chunk_tuples = [(c.text, c.source_url, c.source_title, c.index) for c in all_chunks]
 
     try:
@@ -193,11 +229,10 @@ async def research(
                 client, query, relevant, top_k=min(max_sources * 3, research_config.top_chunks)
             )
         except Exception:
-            # If reranking fails, fall back to original results
             pass
 
     # Select diverse chunks to avoid too many from same source
-    relevant = select_diverse_chunks(
+    relevant = select_diverse_chunks_v2(
         relevant,
         max_per_source=3,
         total_chunks=min(max_sources * 3, research_config.top_chunks),
@@ -240,7 +275,6 @@ Please answer the question using the provided context. Include citation markers 
     # Validate and fix citations
     validated_answer = validate_citations(answer, sources)
     if not validated_answer["valid"]:
-        # Replace invalid citations with placeholder
         import re
 
         for idx in validated_answer.get("invalid_indices", []):
