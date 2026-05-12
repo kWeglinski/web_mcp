@@ -65,8 +65,16 @@ class PathRouter:
         admin_routes: list[Route] | None = None,
         middleware: list[Middleware] | None = None,
     ) -> Starlette:
-        """Build a single Starlette app with all MCP mounts + admin routes."""
+        """Build a single Starlette app with all MCP mounts + admin routes.
+
+        Admin routes are added BEFORE MCP mounts so they take priority
+        and are not intercepted by MCP's route matching.
+        """
         routes: list[Route | Mount] = []
+
+        # Admin routes FIRST so they take priority over MCP mounts
+        if admin_routes:
+            routes.extend(admin_routes)
 
         # Mount each MCP server at its path
         for path, config in self._configs.items():
@@ -75,10 +83,6 @@ class PathRouter:
         # Default fallback
         if self._default_mcp:
             routes.append(Mount("/default", app=self._default_mcp.sse_app()))
-
-        # Admin routes
-        if admin_routes:
-            routes.extend(admin_routes)
 
         # Health endpoint
         routes.append(Route("/health", self._health_handler, methods=["GET"]))
@@ -112,13 +116,19 @@ def validate_path(path: str) -> bool:
 
 def get_all_tool_names() -> list[str]:
     """Return the list of all available tool names."""
-    from web_mcp.server import TOOL_REGISTRY
+    try:
+        from web_mcp.server import TOOL_REGISTRY
 
-    return list(TOOL_REGISTRY.keys())
+        return list(TOOL_REGISTRY.keys())
+    except Exception:
+        return []
 
 
 def get_tool_descriptions() -> dict[str, str]:
     """Return a dict mapping tool names to their descriptions."""
-    from web_mcp.server import TOOL_REGISTRY
+    try:
+        from web_mcp.server import TOOL_REGISTRY
 
-    return {name: info["description"] for name, info in TOOL_REGISTRY.items()}
+        return {name: info["description"] for name, info in TOOL_REGISTRY.items()}
+    except Exception:
+        return {}

@@ -22,18 +22,25 @@ class ConfigStorage:
 
     def _load(self) -> None:
         """Load config from disk into cache."""
-        if self._config_path.exists():
-            try:
+        try:
+            if self._config_path.exists():
                 with open(self._config_path) as f:
                     self._cache = json.load(f)
-            except (json.JSONDecodeError, OSError):
-                self._cache = {"version": 1, "paths": {}}
+            # Ensure parent directory exists for future saves
+            self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            # Any error during load — start with empty cache
+            self._cache = {"version": 1, "paths": {}}
 
     def save(self) -> None:
         """Persist cache to disk."""
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._config_path, "w") as f:
-            json.dump(self._cache, f, indent=2)
+        try:
+            self._config_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(self._config_path, "w") as f:
+                json.dump(self._cache, f, indent=2)
+        except Exception:
+            # Silently fail — cache is still valid in memory
+            pass
 
     def get_paths(self) -> dict[str, Any]:
         """Return all path configurations."""
@@ -59,6 +66,9 @@ class ConfigStorage:
 
     def get_all_tool_names(self) -> list[str]:
         """Return the list of all available tool names."""
-        from web_mcp.server import TOOL_REGISTRY
+        try:
+            from web_mcp.server import TOOL_REGISTRY
 
-        return list(TOOL_REGISTRY.keys())
+            return list(TOOL_REGISTRY.keys())
+        except Exception:
+            return []

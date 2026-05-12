@@ -324,10 +324,15 @@ def build_admin_mode() -> None:
         routing.add_path(PathConfig(path, mcp, path_config.get("name", path)))
 
     # Build admin routes
-    admin_routes = create_admin_routes(routing)
+    admin_routes, admin_router, admin_ui, middleware_classes = create_admin_routes(routing)
+
+    # Build middleware list
+    from starlette.middleware import Middleware
+
+    middleware_list = [Middleware(mw) for mw in middleware_classes]
 
     # Build Starlette app
-    app = routing.build_starlette_app(admin_routes)
+    app = routing.build_starlette_app(admin_routes=admin_routes, middleware=middleware_list)
 
     # Run with uvicorn
     import uvicorn

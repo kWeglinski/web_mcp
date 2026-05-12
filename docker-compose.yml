@@ -13,6 +13,11 @@ services:
       - WEB_MCP_SERVER_PORT=8000
       # SearXNG configuration (optional)
       - WEB_MCP_SEARXNG_URL=http://searxng:8080
+      # Admin mode (uncomment to enable)
+      # - WEB_MCP_ADMIN_ENABLED=true
+      # - WEB_MCP_ADMIN_API_KEY=your-secure-password
+    volumes:
+      - mcp-data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/mcp"]
@@ -20,6 +25,9 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+volumes:
+  mcp-data:
 
   # Optional: SearXNG service (uncomment to enable)
   # searxng:

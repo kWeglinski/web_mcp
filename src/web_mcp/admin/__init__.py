@@ -21,14 +21,23 @@ def create_admin_routes(routing: PathRouter) -> list[Route]:
         List of Starlette Route objects for admin endpoints.
     """
     from web_mcp.admin.router import AdminRouter
+    from web_mcp.admin.session_auth import AdminSessionMiddleware, LoginHandler
     from web_mcp.admin.ui import AdminUI
 
     admin_router = AdminRouter(routing)
     admin_ui = AdminUI()
 
     routes: list[Route] = [
+        # Login page (no auth required)
+        Route("/admin/login", admin_ui.serve_login, methods=["GET"]),
+        # Login endpoint (no auth required)
+        Route("/admin/login", LoginHandler.handle_login, methods=["POST"]),
+        # Logout endpoint (no auth required)
+        Route("/admin/logout", LoginHandler.handle_logout, methods=["POST"]),
+        # Admin UI (requires session)
         Route("/admin", admin_ui.serve_index, methods=["GET"]),
         Route("/admin/", admin_ui.serve_index, methods=["GET"]),
+        # REST API endpoints (require session)
         Route("/admin/config", admin_router.get_config, methods=["GET"]),
         Route("/admin/config", admin_router.update_config, methods=["POST"]),
         Route("/admin/config/paths", admin_router.list_paths, methods=["GET"]),
@@ -40,23 +49,4 @@ def create_admin_routes(routing: PathRouter) -> list[Route]:
         Route("/admin/health", admin_router.health, methods=["GET"]),
     ]
 
-    # Wrap each route handler with auth middleware
-    from functools import wraps
-
-    def with_auth(handler):
-        @wraps(handler)
-        async def wrapped(request):
-            return await admin_router._check_auth(request, lambda: handler(request))
-
-        return wrapped
-
-    # Apply auth wrapper to admin routes (not health)
-    auth_routes = []
-    for route in routes:
-        if route.path == "/admin/health":
-            auth_routes.append(route)
-        else:
-            wrapped_handler = with_auth(route.endpoint)
-            auth_routes.append(Route(route.path, wrapped_handler, methods=route.methods))
-
-    return auth_routes
+    return routes, admin_router, admin_ui, [AdminSessionMiddleware]
