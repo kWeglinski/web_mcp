@@ -16,7 +16,11 @@ from web_mcp.admin.schemas import (
     ToolsListOutput,
 )
 from web_mcp.admin.storage import ConfigStorage
-from web_mcp.path_routing import PathRouter, get_all_tool_names, get_tool_descriptions, validate_path
+from web_mcp.path_routing import (
+    PathRouter,
+    get_tool_descriptions,
+    validate_path,
+)
 
 
 class AdminRouter:
@@ -42,12 +46,12 @@ class AdminRouter:
         """POST /admin/config — Update full config (replaces all paths)."""
         body = await request.json()
         paths = body.get("paths", {})
-        
+
         # Clear existing paths
         existing = list(self._storage.get_paths().keys())
         for path in existing:
             self._storage.delete_path_config(path)
-        
+
         # Set new paths
         for path, config in paths.items():
             if not validate_path(path):

@@ -59,8 +59,8 @@ async def create_chart_tool(
         return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for image output."
 
     try:
-        from web_mcp.charts.generator import CHART_TYPES, create_chart_image_bytes
         from web_mcp.charts import ChartConfig, ChartError
+        from web_mcp.charts.generator import CHART_TYPES, create_chart_image_bytes
 
         chart_type: CHART_TYPES = type  # type: ignore
         chart_config = ChartConfig(

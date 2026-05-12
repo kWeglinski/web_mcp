@@ -1,11 +1,8 @@
 """Web Browsing MCP Server - Browse the web with context-aware content extraction."""
 
-import json
 import os
 import sys
-import time
 from contextlib import asynccontextmanager
-from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -14,11 +11,8 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
-from web_mcp.config import get_config
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
 from web_mcp.logging import get_logger, setup_logging
-from web_mcp.security import validate_url_ip
-from web_mcp.tools._core import VERSION, SERVER_START_TIME, increment_request_count
 
 setup_logging()
 
@@ -221,10 +215,10 @@ def _register_tool(mcp, fn, annotations=None, structured_output=False) -> None:
 
 def register_all_tools(mcp: FastMCP) -> None:
     """Register all tools on an MCP instance."""
+    from web_mcp.tools.advanced import create_chart_tool, run_javascript
     from web_mcp.tools.fetching import get_page, render_html
     from web_mcp.tools.search import brave_search, search_metrics, search_web
     from web_mcp.tools.utils import current_datetime, health
-    from web_mcp.tools.advanced import create_chart_tool, run_javascript
 
     ro = ToolAnnotations(readOnlyHint=True)
     ro_ow = ToolAnnotations(readOnlyHint=True, openWorldHint=True)

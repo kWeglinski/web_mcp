@@ -24,7 +24,7 @@ class ConfigStorage:
         """Load config from disk into cache."""
         if self._config_path.exists():
             try:
-                with open(self._config_path, "r") as f:
+                with open(self._config_path) as f:
                     self._cache = json.load(f)
             except (json.JSONDecodeError, OSError):
                 self._cache = {"version": 1, "paths": {}}

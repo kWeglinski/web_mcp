@@ -1,8 +1,13 @@
 """Search tools: search_web, brave_search, search_metrics."""
 
 from web_mcp.logging import get_logger
-from web_mcp.searxng import deduplicate_results, get_search_metrics, parse_searxng_to_markdown, search
-from web_mcp.tools._core import _SEARCH_PROVIDER, increment_request_count
+from web_mcp.searxng import (
+    deduplicate_results,
+    get_search_metrics,
+    parse_searxng_to_markdown,
+    search,
+)
+from web_mcp.tools._core import _SEARCH_PROVIDER
 
 logger = get_logger(__name__)
 
@@ -49,7 +54,6 @@ async def _search_brave(query: str) -> str:
 
 async def _search_searxng(query: str, time_range: str | None = None) -> str:
     """Primary SearXNG search with Brave fallback implementation."""
-    from web_mcp.searxng import parse_searxng_to_markdown
 
     try:
         results = await search(query, 30, time_range=time_range)

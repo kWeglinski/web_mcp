@@ -4,7 +4,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from starlette.requests import Request
-from starlette.routing import Route
 
 from web_mcp.admin.router import AdminRouter
 

@@ -9,19 +9,22 @@ async def test_search_uses_brave_when_configured():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "brave"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
-        assert server_module._SEARCH_PROVIDER == "brave"
+        importlib.reload(core_module)
+        assert core_module._SEARCH_PROVIDER == "brave"
+
+        import web_mcp.tools.search as search_module
+        importlib.reload(search_module)
 
         mock_result = "*mocked brave result*"
-        with patch.object(server_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
+        with patch.object(search_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
             with patch.object(
-                server_module, "_search_searxng", new_callable=AsyncMock
+                search_module, "_search_searxng", new_callable=AsyncMock
             ) as mock_searxng:
                 mock_brave.return_value = mock_result
 
-                result = await server_module.search_web(query="test query")
+                result = await search_module.search_web(query="test query")
 
         assert result == mock_result
         mock_brave.assert_called_once()
@@ -36,19 +39,22 @@ async def test_search_uses_searxng_by_default():
     try:
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
-        assert server_module._SEARCH_PROVIDER == "searxng"
+        importlib.reload(core_module)
+        assert core_module._SEARCH_PROVIDER == "searxng"
+
+        import web_mcp.tools.search as search_module
+        importlib.reload(search_module)
 
         mock_result = "*mocked searxng result*"
-        with patch.object(server_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
+        with patch.object(search_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
             with patch.object(
-                server_module, "_search_searxng", new_callable=AsyncMock
+                search_module, "_search_searxng", new_callable=AsyncMock
             ) as mock_searxng:
                 mock_searxng.return_value = mock_result
 
-                result = await server_module.search_web(query="test query")
+                result = await search_module.search_web(query="test query")
 
         assert result == mock_result
         mock_brave.assert_not_called()
@@ -65,19 +71,22 @@ async def test_search_uses_searxng_when_explicitly_configured():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "searxng"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
-        assert server_module._SEARCH_PROVIDER == "searxng"
+        importlib.reload(core_module)
+        assert core_module._SEARCH_PROVIDER == "searxng"
+
+        import web_mcp.tools.search as search_module
+        importlib.reload(search_module)
 
         mock_result = "*mocked searxng result*"
-        with patch.object(server_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
+        with patch.object(search_module, "_search_brave", new_callable=AsyncMock) as mock_brave:
             with patch.object(
-                server_module, "_search_searxng", new_callable=AsyncMock
+                search_module, "_search_searxng", new_callable=AsyncMock
             ) as mock_searxng:
                 mock_searxng.return_value = mock_result
 
-                result = await server_module.search_web(query="test query", time_range="day")
+                result = await search_module.search_web(query="test query", time_range="day")
 
         assert result == mock_result
         mock_brave.assert_not_called()
@@ -89,9 +98,12 @@ async def test_search_brave_fallback_when_key_missing():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "brave"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
+        importlib.reload(core_module)
+
+        import web_mcp.tools.search as search_module
+        importlib.reload(search_module)
 
         with patch("web_mcp.brave.search", new_callable=AsyncMock) as mock_brave_search:
             from web_mcp.brave import BraveSearchError
@@ -100,7 +112,7 @@ async def test_search_brave_fallback_when_key_missing():
                 "BRAVE_API_KEY environment variable not set"
             )
 
-            result = await server_module._search_brave("test query")
+            result = await search_module._search_brave("test query")
 
         assert "Brave Search failed" in result
         assert "BRAVE_API_KEY environment variable not set" in result
@@ -111,11 +123,13 @@ async def test_brave_search_tool_always_uses_brave_api():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "searxng"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        # Reload to pick up env var
-        importlib.reload(server_module)
-        assert server_module._SEARCH_PROVIDER == "searxng"
+        importlib.reload(core_module)
+        assert core_module._SEARCH_PROVIDER == "searxng"
+
+        import web_mcp.tools.search as search_module
+        importlib.reload(search_module)
 
         mock_results = [
             {
@@ -126,10 +140,10 @@ async def test_brave_search_tool_always_uses_brave_api():
         ]
 
         with patch("web_mcp.brave.search", new_callable=AsyncMock) as mock_brave:
-            with patch.object(server_module, "deduplicate_results", return_value=mock_results):
+            with patch.object(search_module, "deduplicate_results", return_value=mock_results):
                 mock_brave.return_value = mock_results
 
-                result = await server_module.brave_search(query="test query")
+                result = await search_module.brave_search(query="test query")
 
         mock_brave.assert_called_once()
         call_kwargs = mock_brave.call_args.kwargs
@@ -142,11 +156,11 @@ async def test_search_provider_module_variable():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "brave"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
-        assert hasattr(server_module, "_SEARCH_PROVIDER")
-        assert server_module._SEARCH_PROVIDER == "brave"
+        importlib.reload(core_module)
+        assert hasattr(core_module, "_SEARCH_PROVIDER")
+        assert core_module._SEARCH_PROVIDER == "brave"
 
 
 async def test_search_provider_default():
@@ -157,11 +171,11 @@ async def test_search_provider_default():
     try:
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools._core as core_module
 
-        importlib.reload(server_module)
-        assert hasattr(server_module, "_SEARCH_PROVIDER")
-        assert server_module._SEARCH_PROVIDER == "searxng"
+        importlib.reload(core_module)
+        assert hasattr(core_module, "_SEARCH_PROVIDER")
+        assert core_module._SEARCH_PROVIDER == "searxng"
     finally:
         os.environ.clear()
         os.environ.update(env_copy)
@@ -172,8 +186,8 @@ async def test_brave_search_tool_description():
     with patch.dict(os.environ, {"WEB_MCP_SEARCH_PROVIDER": "searxng"}):
         import importlib
 
-        import web_mcp.server as server_module
+        import web_mcp.tools.search as search_module
 
-        importlib.reload(server_module)
+        importlib.reload(search_module)
         # Check the docstring of brave_search
-        assert "WEB_MCP_SEARCH_PROVIDER=brave" in server_module.brave_search.__doc__
+        assert "WEB_MCP_SEARCH_PROVIDER=brave" in search_module.brave_search.__doc__

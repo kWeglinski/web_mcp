@@ -14,7 +14,6 @@ from web_mcp.pdf_processor import (
 from web_mcp.playwright_fetcher import PlaywrightFetchError
 from web_mcp.research.bm25 import BM25
 from web_mcp.research.chunker import chunk_text
-from web_mcp.security import validate_url, validate_url_ip
 from web_mcp.tools._core import increment_request_count
 
 logger = get_logger(__name__)

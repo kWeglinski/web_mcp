@@ -1,8 +1,6 @@
 """Unit tests for admin ConfigStorage."""
 
-import json
 
-import pytest
 
 from web_mcp.admin.storage import ConfigStorage
 

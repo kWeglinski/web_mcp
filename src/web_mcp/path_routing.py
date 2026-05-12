@@ -6,9 +6,6 @@ Each path gets its own toolset based on admin configuration.
 
 from __future__ import annotations
 
-import os
-from typing import Any
-
 from mcp.server.fastmcp import FastMCP
 from starlette.applications import Starlette
 from starlette.middleware import Middleware

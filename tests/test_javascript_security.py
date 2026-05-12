@@ -63,7 +63,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_localhost_ip(self, mock_config):
         """Test that fetching 127.0.0.1 is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -75,7 +75,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_private_ip_class_a(self, mock_config):
         """Test that fetching 10.x.x.x is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -87,7 +87,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_private_ip_class_b(self, mock_config):
         """Test that fetching 172.16.x.x is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -101,7 +101,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_private_ip_class_c(self, mock_config):
         """Test that fetching 192.168.x.x is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -115,7 +115,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_localhost_hostname(self, mock_config):
         """Test that fetching localhost hostname is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -129,7 +129,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_invalid_scheme_ftp(self, mock_config):
         """Test that ftp:// URLs are blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -141,7 +141,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_invalid_scheme_file(self, mock_config):
         """Test that file:// URLs are blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -153,7 +153,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_invalid_scheme_javascript(self, mock_config):
         """Test that javascript: URLs are blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -165,7 +165,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_allow_public_url(self, mock_config):
         """Test that public URLs are allowed (mocked HTTP call)."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_response = create_mock_async_context(
             content=b'{"status":"ok"}',
@@ -188,7 +188,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_link_local_ip(self, mock_config):
         """Test that link-local IP 169.254.x.x is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -202,7 +202,7 @@ class TestJavascriptSSRFProtection:
     @pytest.mark.asyncio
     async def test_block_ipv6_loopback(self, mock_config):
         """Test that IPv6 loopback ::1 is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         with patch("web_mcp.server.get_config", return_value=mock_config):
             result = await run_javascript(
@@ -218,7 +218,7 @@ class TestJavascriptRateLimiting:
     @pytest.mark.asyncio
     async def test_fetch_count_limit(self, mock_config):
         """Test that exceeding max fetch requests is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_requests = 3
 
@@ -244,7 +244,7 @@ class TestJavascriptRateLimiting:
     @pytest.mark.asyncio
     async def test_fetch_count_within_limit(self, mock_config):
         """Test that fetches within limit succeed."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_requests = 5
 
@@ -270,7 +270,7 @@ class TestJavascriptRateLimiting:
     @pytest.mark.asyncio
     async def test_total_bytes_limit(self, mock_config):
         """Test that exceeding total bytes limit is blocked."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_total_bytes = 100
         mock_config.js_fetch_max_response_size = 200
@@ -308,7 +308,7 @@ class TestJavascriptResponseSizeLimit:
     @pytest.mark.asyncio
     async def test_response_exceeds_size_limit_via_content_length(self, mock_config):
         """Test that responses with large content-length are rejected early."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_response_size = 100
 
@@ -335,7 +335,7 @@ class TestJavascriptResponseSizeLimit:
     @pytest.mark.asyncio
     async def test_response_exceeds_size_limit_during_stream(self, mock_config):
         """Test that responses exceeding max size during streaming are rejected."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_response_size = 50
 
@@ -374,7 +374,7 @@ class TestJavascriptResponseSizeLimit:
     @pytest.mark.asyncio
     async def test_response_within_size_limit(self, mock_config):
         """Test that responses within size limit succeed."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_response_size = 1000
 
@@ -397,7 +397,7 @@ class TestJavascriptResponseSizeLimit:
     @pytest.mark.asyncio
     async def test_response_with_chunked_encoding(self, mock_config):
         """Test handling of chunked responses without content-length header."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_max_response_size = 1000
 
@@ -436,7 +436,7 @@ class TestJavascriptSSLVerification:
     @pytest.mark.asyncio
     async def test_ssl_verification_default_true(self, mock_config):
         """Test that SSL verification is enabled by default."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_verify_ssl = True
 
@@ -464,7 +464,7 @@ class TestJavascriptSSLVerification:
     @pytest.mark.asyncio
     async def test_ssl_verification_can_be_disabled(self, mock_config):
         """Test that SSL verification can be disabled via config."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_verify_ssl = False
 
@@ -496,7 +496,7 @@ class TestJavascriptFetchOptions:
     @pytest.mark.asyncio
     async def test_fetch_with_custom_headers(self, mock_config):
         """Test that custom headers are passed to the request."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_response = create_mock_async_context(
             content=b'{"status":"ok"}',
@@ -529,7 +529,7 @@ class TestJavascriptFetchOptions:
     @pytest.mark.asyncio
     async def test_fetch_with_post_method(self, mock_config):
         """Test that POST method is passed correctly."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_response = create_mock_async_context(
             content=b'{"id":1}',
@@ -562,7 +562,7 @@ class TestJavascriptFetchOptions:
     @pytest.mark.asyncio
     async def test_fetch_response_ok_property(self, mock_config):
         """Test that response.ok is true for 2xx status codes."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_response = create_mock_async_context(content=b"", status_code=204, reason="No Content")
         mock_client = create_mock_client_with_response(mock_response)
@@ -581,7 +581,7 @@ class TestJavascriptFetchOptions:
     @pytest.mark.asyncio
     async def test_fetch_response_not_ok_for_4xx(self, mock_config):
         """Test that response.ok is false for 4xx status codes."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_response = create_mock_async_context(content=b"", status_code=404, reason="Not Found")
         mock_client = create_mock_client_with_response(mock_response)
@@ -604,7 +604,7 @@ class TestJavascriptTimeout:
     @pytest.mark.asyncio
     async def test_fetch_timeout_from_config(self, mock_config):
         """Test that fetch uses timeout from config."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_timeout = 5000
 
@@ -627,7 +627,7 @@ class TestJavascriptTimeout:
     @pytest.mark.asyncio
     async def test_fetch_custom_timeout_in_options(self, mock_config):
         """Test that custom timeout in fetch options is used."""
-        from web_mcp.server import run_javascript
+        from web_mcp.tools.advanced import run_javascript
 
         mock_config.js_fetch_timeout = 10000
 

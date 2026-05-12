@@ -2,8 +2,6 @@
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from web_mcp.server import TOOL_REGISTRY, register_all_tools, register_tools_for_path
 
 
