@@ -40,6 +40,12 @@ ENV_TLS_CLIENT_IDENTIFIER = "WEB_MCP_TLS_CLIENT_IDENTIFIER"
 ENV_REFERER = "WEB_MCP_REFERER"
 ENV_PROXY_URL = "WEB_MCP_PROXY_URL"
 
+# Admin panel settings
+ENV_ADMIN_ENABLED = "WEB_MCP_ADMIN_ENABLED"
+ENV_ADMIN_API_KEY = "WEB_MCP_ADMIN_API_KEY"
+ENV_ADMIN_PATH = "WEB_MCP_ADMIN_PATH"
+ENV_ADMIN_CONFIG_FILE = "WEB_MCP_ADMIN_CONFIG_FILE"
+
 
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
@@ -206,6 +212,16 @@ class Config:
         self.referer: str = os.environ.get(ENV_REFERER, "")
 
         self.proxy_url: str | None = os.environ.get(ENV_PROXY_URL, None)
+
+        # Admin panel settings
+        self.admin_enabled: bool = os.environ.get(ENV_ADMIN_ENABLED, "false").lower() in (
+            "true", "1", "yes",
+        )
+        self.admin_api_key: str = os.environ.get(ENV_ADMIN_API_KEY, "")
+        self.admin_path: str = os.environ.get(ENV_ADMIN_PATH, "/admin")
+        self.admin_config_file: str = os.environ.get(
+            ENV_ADMIN_CONFIG_FILE, "/data/mcp-admin-config.json"
+        )
 
     @property
     def http_headers(self) -> dict[str, str]:
