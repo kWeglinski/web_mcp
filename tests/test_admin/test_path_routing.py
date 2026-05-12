@@ -1,9 +1,8 @@
 """Unit tests for path_routing module."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
-import pytest
-from starlette.routing import Mount, Route
+from starlette.routing import Route
 
 from web_mcp.path_routing import (
     PathConfig,
@@ -264,6 +263,6 @@ class TestGetToolDescriptions:
         """Test all descriptions are non-empty strings."""
         descriptions = get_tool_descriptions()
 
-        for name, desc in descriptions.items():
+        for _name, desc in descriptions.items():
             assert isinstance(desc, str)
             assert len(desc) > 0
