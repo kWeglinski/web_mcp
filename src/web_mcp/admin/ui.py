@@ -58,7 +58,10 @@ th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-s
 <div class="container">
   <header>
     <h1>Web MCP Admin</h1>
-    <span class="badge">v1.0.0</span>
+    <div style="display:flex;align-items:center;gap:0.75rem;">
+      <span class="badge">v1.0.0</span>
+      <button class="btn" onclick="handleLogout()">Logout</button>
+    </div>
   </header>
 
   <div id="toast" class="toast hidden"></div>
@@ -120,15 +123,28 @@ let allTools = [];
 
 async function fetchJSON(url, opts) {
   const res = await fetch(url, opts);
+  if (res.status === 401) {
+    window.location.href = '/admin/login';
+    return null;
+  }
   if (!res.ok) throw new Error(await res.text() || res.status);
   return res.json();
+}
+
+async function handleLogout() {
+  try {
+    await fetch('/admin/logout', { method: 'POST' });
+  } catch {}
+  window.location.href = '/admin/login';
 }
 
 async function loadTools() {
   try {
     allTools = await fetchJSON(API + '/admin/tools');
-    renderTools(allTools);
-    renderFormTools(allTools);
+    if (allTools) {
+      renderTools(allTools);
+      renderFormTools(allTools);
+    }
   } catch(e) { showToast('Failed to load tools: ' + e.message, 'error'); }
 }
 
@@ -149,6 +165,7 @@ function renderFormTools(tools) {
 async function loadPaths() {
   try {
     const paths = await fetchJSON(API + '/admin/config/paths');
+    if (!paths) return;
     const keys = Object.keys(paths);
     if (!keys.length) {
       document.getElementById('pathsList').innerHTML = '<div class="empty">No paths configured. Click "+ Add Path" to create one.</div>';
@@ -160,8 +177,8 @@ async function loadPaths() {
         '<td>' + paths[p].name + '</td>' +
         '<td>' + paths[p].enabled_tools.map(t => '<span class="tag">' + t + '</span>').join('') + '</td>' +
         '<td>' + (paths[p].requires_auth ? 'Yes' : 'No') + '</td>' +
-        '<td><button class="btn btn-sm" onclick="editPath(\'' + p + '\')">Edit</button> ' +
-        '<button class="btn btn-sm btn-danger" onclick="deletePath(\'' + p + '\')">Delete</button></td></tr>'
+        '<td><button class="btn btn-sm" onclick="editPath(\\'' + p + '\\')">Edit</button> ' +
+        '<button class="btn btn-sm btn-danger" onclick="deletePath(\\'' + p + '\\')">Delete</button></td></tr>'
       ).join('') + '</tbody></table>';
   } catch(e) { showToast('Failed to load paths: ' + e.message, 'error'); }
 }
@@ -180,6 +197,7 @@ function closeModal() {
 async function editPath(path) {
   try {
     const config = await fetchJSON(API + '/admin/config/paths/' + encodeURIComponent(path));
+    if (!config) return;
     document.getElementById('modalTitle').textContent = 'Edit Path';
     document.getElementById('editPath').value = path;
     document.getElementById('formPath').value = path;
@@ -249,6 +267,68 @@ loadPaths();
 </body>
 </html>"""
 
+LOGIN_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web MCP — Admin Login</title>
+<style>
+:root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --text: #e4e4e7; --muted: #71717a; --accent: #6366f1; --accent-hover: #818cf8; --danger: #ef4444; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+.login-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2.5rem; width: 100%; max-width: 380px; }
+.login-card h1 { font-size: 1.5rem; font-weight: 600; text-align: center; margin-bottom: 0.25rem; }
+.login-card .subtitle { color: var(--muted); text-align: center; font-size: 0.875rem; margin-bottom: 2rem; }
+.form-group { margin-bottom: 1.25rem; }
+.form-group label { display: block; font-size: 0.875rem; color: var(--muted); margin-bottom: 0.5rem; }
+.form-group input { width: 100%; padding: 0.625rem 0.875rem; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-size: 0.875rem; transition: border-color 0.15s; }
+.form-group input:focus { outline: none; border-color: var(--accent); }
+.btn { width: 100%; padding: 0.625rem 1rem; border: none; border-radius: 6px; background: var(--accent); color: #fff; cursor: pointer; font-size: 0.875rem; font-weight: 500; transition: background 0.15s; }
+.btn:hover { background: var(--accent-hover); }
+.error-msg { color: var(--danger); font-size: 0.8125rem; margin-top: 0.75rem; text-align: center; min-height: 1.25rem; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <h1>Web MCP Admin</h1>
+  <p class="subtitle">Sign in to manage your server</p>
+  <form onsubmit="return handleLogin(event)">
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" placeholder="Enter admin password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="btn">Sign in</button>
+  </form>
+  <div id="error" class="error-msg"></div>
+</div>
+<script>
+async function handleLogin(e) {
+  e.preventDefault();
+  const password = document.getElementById('password').value;
+  const errorEl = document.getElementById('error');
+  errorEl.textContent = '';
+  try {
+    const res = await fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password })
+    });
+    const data = await res.json();
+    if (res.ok && data.status === 'ok') {
+      window.location.href = '/admin/';
+    } else {
+      errorEl.textContent = data.error || 'Login failed';
+    }
+  } catch {
+    errorEl.textContent = 'Connection error';
+  }
+  return false;
+}
+</script>
+</body>
+</html>"""
+
 
 class AdminUI:
     """Serves the admin panel HTML."""
@@ -257,3 +337,8 @@ class AdminUI:
     def serve_index(request):  # noqa: ARG004
         """Serve the admin panel index page."""
         return HTMLResponse(content=CONTENT)
+
+    @staticmethod
+    def serve_login(request):  # noqa: ARG004
+        """Serve the login page."""
+        return HTMLResponse(content=LOGIN_HTML)
