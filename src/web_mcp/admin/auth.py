@@ -25,10 +25,7 @@ class AdminAuthMiddleware(BaseHTTPMiddleware):
                     {"error": "Admin API key not configured"},
                     status_code=503,
                 )
-            api_key = (
-                request.headers.get("X-Admin-Key")
-                or request.query_params.get("api_key")
-            )
+            api_key = request.headers.get("X-Admin-Key") or request.query_params.get("api_key")
             if not api_key or api_key != ADMIN_API_KEY:
                 return JSONResponse(
                     {"error": "Unauthorized"},

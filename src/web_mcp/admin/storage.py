@@ -14,9 +14,9 @@ class ConfigStorage:
     DEFAULT_CONFIG_PATH = "/data/mcp-admin-config.json"
 
     def __init__(self, config_path: str | Path | None = None):
-        self._config_path = Path(config_path or os.environ.get(
-            "WEB_MCP_ADMIN_CONFIG_FILE", self.DEFAULT_CONFIG_PATH
-        ))
+        self._config_path = Path(
+            config_path or os.environ.get("WEB_MCP_ADMIN_CONFIG_FILE", self.DEFAULT_CONFIG_PATH)
+        )
         self._cache: dict[str, Any] = {"version": 1, "paths": {}}
         self._load()
 
@@ -60,4 +60,5 @@ class ConfigStorage:
     def get_all_tool_names(self) -> list[str]:
         """Return the list of all available tool names."""
         from web_mcp.server import TOOL_REGISTRY
+
         return list(TOOL_REGISTRY.keys())

@@ -91,6 +91,7 @@ class PathRouter:
     @staticmethod
     async def _health_handler(request):
         from starlette.responses import JSONResponse
+
         return JSONResponse({"status": "healthy", "version": "1.0.0"})
 
 

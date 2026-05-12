@@ -15,6 +15,7 @@ async def test_search_uses_brave_when_configured():
         assert core_module._SEARCH_PROVIDER == "brave"
 
         import web_mcp.tools.search as search_module
+
         importlib.reload(search_module)
 
         mock_result = "*mocked brave result*"
@@ -45,6 +46,7 @@ async def test_search_uses_searxng_by_default():
         assert core_module._SEARCH_PROVIDER == "searxng"
 
         import web_mcp.tools.search as search_module
+
         importlib.reload(search_module)
 
         mock_result = "*mocked searxng result*"
@@ -77,6 +79,7 @@ async def test_search_uses_searxng_when_explicitly_configured():
         assert core_module._SEARCH_PROVIDER == "searxng"
 
         import web_mcp.tools.search as search_module
+
         importlib.reload(search_module)
 
         mock_result = "*mocked searxng result*"
@@ -103,6 +106,7 @@ async def test_search_brave_fallback_when_key_missing():
         importlib.reload(core_module)
 
         import web_mcp.tools.search as search_module
+
         importlib.reload(search_module)
 
         with patch("web_mcp.brave.search", new_callable=AsyncMock) as mock_brave_search:
@@ -129,6 +133,7 @@ async def test_brave_search_tool_always_uses_brave_api():
         assert core_module._SEARCH_PROVIDER == "searxng"
 
         import web_mcp.tools.search as search_module
+
         importlib.reload(search_module)
 
         mock_results = [

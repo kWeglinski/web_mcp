@@ -149,12 +149,14 @@ class AdminRouter:
         for name, desc in descriptions.items():
             is_read_only = name not in ("create_chart_tool", "run_javascript")
             destructive = name == "run_javascript"
-            tools.append(ToolInfo(
-                name=name,
-                description=desc,
-                is_read_only=is_read_only,
-                destructive=destructive,
-            ).model_dump())
+            tools.append(
+                ToolInfo(
+                    name=name,
+                    description=desc,
+                    is_read_only=is_read_only,
+                    destructive=destructive,
+                ).model_dump()
+            )
         return JSONResponse(ToolsListOutput(tools=tools).model_dump())
 
     async def health(self, request: Request) -> JSONResponse:

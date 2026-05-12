@@ -11,11 +11,13 @@ from starlette.testclient import TestClient
 
 def _make_health_response(request: Request):
     from starlette.responses import JSONResponse
+
     return JSONResponse({"status": "ok"})
 
 
 def _make_admin_response(request: Request):
     from starlette.responses import JSONResponse
+
     return JSONResponse({"admin": "data"})
 
 

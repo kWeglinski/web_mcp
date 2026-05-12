@@ -10,9 +10,7 @@ class PathConfigInput(BaseModel):
 
     name: str = Field(..., min_length=1, max_length=100, description="Display name for the path")
     description: str = Field("", max_length=500, description="Optional description")
-    enabled_tools: list[str] = Field(
-        ..., min_length=1, description="List of tool names to enable"
-    )
+    enabled_tools: list[str] = Field(..., min_length=1, description="List of tool names to enable")
     requires_auth: bool = Field(True, description="Whether MCP clients need auth for this path")
 
 

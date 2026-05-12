@@ -50,7 +50,9 @@ def mock_routing():
 @pytest.fixture
 def admin_router(mock_routing, mock_storage):
     """Fixture providing an AdminRouter with mocked dependencies."""
-    with patch("web_mcp.admin.router.AdminRouter._check_auth", new_callable=AsyncMock) as mock_check:
+    with patch(
+        "web_mcp.admin.router.AdminRouter._check_auth", new_callable=AsyncMock
+    ) as mock_check:
         mock_check.side_effect = lambda req, handler: handler()
         with patch("web_mcp.admin.router.ConfigStorage", return_value=mock_storage):
             router = AdminRouter(mock_routing)
@@ -258,9 +260,7 @@ class TestGetPathFound:
             "requires_auth": True,
         }
 
-        request = _make_request(
-            "GET", "/admin/config/paths/search", path_params={"path": "search"}
-        )
+        request = _make_request("GET", "/admin/config/paths/search", path_params={"path": "search"})
 
         response = await admin_router.get_path(request)
 

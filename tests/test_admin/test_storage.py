@@ -1,7 +1,5 @@
 """Unit tests for admin ConfigStorage."""
 
-
-
 from web_mcp.admin.storage import ConfigStorage
 
 
@@ -29,7 +27,9 @@ class TestSaveAndLoad:
         config_file = tmp_path / "config.json"
         storage = ConfigStorage(config_file)
 
-        storage.set_path_config("/search", {"name": "Search", "enabled_tools": ["get_page", "search_web"]})
+        storage.set_path_config(
+            "/search", {"name": "Search", "enabled_tools": ["get_page", "search_web"]}
+        )
         storage.set_path_config("/research", {"name": "Research", "enabled_tools": ["get_page"]})
         storage.save()
 
@@ -115,7 +115,9 @@ class TestUpsertAndDelete:
         storage = ConfigStorage(config_file)
 
         storage.set_path_config("/search", {"name": "Search V1", "enabled_tools": ["get_page"]})
-        storage.set_path_config("/search", {"name": "Search V2", "enabled_tools": ["get_page", "search_web"]})
+        storage.set_path_config(
+            "/search", {"name": "Search V2", "enabled_tools": ["get_page", "search_web"]}
+        )
 
         paths = storage.get_paths()
         assert paths["/search"]["name"] == "Search V2"
@@ -155,7 +157,9 @@ class TestUpsertAndDelete:
         assert config["name"] == "Search"
 
         # Update
-        storage.set_path_config("/search", {"name": "Search Updated", "enabled_tools": ["get_page", "search_web"]})
+        storage.set_path_config(
+            "/search", {"name": "Search Updated", "enabled_tools": ["get_page", "search_web"]}
+        )
         config = storage.get_path_config("/search")
         assert config["name"] == "Search Updated"
 

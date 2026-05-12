@@ -240,15 +240,39 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
     from web_mcp.tools import advanced, fetching, search, utils
 
     all_tools: dict[str, tuple] = {
-        "get_page": (fetching.get_page, ToolAnnotations(readOnlyHint=True, openWorldHint=True), OUTPUT_SCHEMAS),
+        "get_page": (
+            fetching.get_page,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
         "render_html": (fetching.render_html, ToolAnnotations(readOnlyHint=True), OUTPUT_SCHEMAS),
-        "search_web": (search.search_web, ToolAnnotations(readOnlyHint=True, openWorldHint=True), OUTPUT_SCHEMAS),
-        "brave_search": (search.brave_search, ToolAnnotations(readOnlyHint=True, openWorldHint=True), OUTPUT_SCHEMAS),
+        "search_web": (
+            search.search_web,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "brave_search": (
+            search.brave_search,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
         "search_metrics": (search.search_metrics, ToolAnnotations(readOnlyHint=True), None),
         "health": (utils.health, ToolAnnotations(readOnlyHint=True), OUTPUT_SCHEMAS),
-        "current_datetime": (utils.current_datetime, ToolAnnotations(readOnlyHint=True), OUTPUT_SCHEMAS),
-        "create_chart_tool": (advanced.create_chart_tool, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS),
-        "run_javascript": (advanced.run_javascript, ToolAnnotations(destructiveHint=True, openWorldHint=True), OUTPUT_SCHEMAS),
+        "current_datetime": (
+            utils.current_datetime,
+            ToolAnnotations(readOnlyHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "create_chart_tool": (
+            advanced.create_chart_tool,
+            ToolAnnotations(openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "run_javascript": (
+            advanced.run_javascript,
+            ToolAnnotations(destructiveHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
     }
 
     for name in tool_names:
@@ -258,7 +282,6 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
             continue
         fn, annotations, structured_output = tool_entry
         _register_tool(mcp, fn, annotations, structured_output)
-
 
 
 def create_default_mcp() -> FastMCP:
@@ -317,7 +340,11 @@ def main():
     """Run the MCP server."""
     import sys
 
-    if "--admin" in sys.argv or os.environ.get("WEB_MCP_ADMIN_ENABLED", "").lower() in ("true", "1", "yes"):
+    if "--admin" in sys.argv or os.environ.get("WEB_MCP_ADMIN_ENABLED", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    ):
         build_admin_mode()
         return
 

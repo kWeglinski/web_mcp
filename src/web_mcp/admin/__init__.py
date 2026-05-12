@@ -57,8 +57,6 @@ def create_admin_routes(routing: PathRouter) -> list[Route]:
             auth_routes.append(route)
         else:
             wrapped_handler = with_auth(route.endpoint)
-            auth_routes.append(
-                Route(route.path, wrapped_handler, methods=route.methods)
-            )
+            auth_routes.append(Route(route.path, wrapped_handler, methods=route.methods))
 
     return auth_routes

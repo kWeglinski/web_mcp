@@ -249,6 +249,7 @@ loadPaths();
 </body>
 </html>"""
 
+
 class AdminUI:
     """Serves the admin panel HTML."""
 

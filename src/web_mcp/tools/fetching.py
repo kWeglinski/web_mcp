@@ -46,6 +46,7 @@ def _get_default_extractor():
     global _default_extractor
     if _default_extractor is None:
         from web_mcp.extractors.trafilatura import TrafilaturaExtractor
+
         _default_extractor = TrafilaturaExtractor()
     return _default_extractor
 
@@ -55,6 +56,7 @@ def _get_custom_extractor():
     global _custom_extractor
     if _custom_extractor is None:
         from web_mcp.extractors.custom import CustomSelectorExtractor
+
         _custom_extractor = CustomSelectorExtractor()
     return _custom_extractor
 

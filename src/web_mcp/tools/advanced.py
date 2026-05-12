@@ -80,6 +80,7 @@ async def create_chart_tool(
             return f"{url}\n\nEmbed in markdown: ![chart]({url})"
         else:
             from web_mcp.charts import create_chart
+
             html = create_chart(chart_config)
             store = get_content_store()
             content_id, token = store.store(html, content_type="text/html")

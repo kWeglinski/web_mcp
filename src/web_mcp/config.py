@@ -215,7 +215,9 @@ class Config:
 
         # Admin panel settings
         self.admin_enabled: bool = os.environ.get(ENV_ADMIN_ENABLED, "false").lower() in (
-            "true", "1", "yes",
+            "true",
+            "1",
+            "yes",
         )
         self.admin_api_key: str = os.environ.get(ENV_ADMIN_API_KEY, "")
         self.admin_path: str = os.environ.get(ENV_ADMIN_PATH, "/admin")
