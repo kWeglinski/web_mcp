@@ -63,7 +63,7 @@ async def test_search_without_time_range_works_as_before():
 
 async def test_search_web_tool_accepts_time_range_param():
     """Verify search_web MCP tool accepts and passes time_range parameter."""
-    from web_mcp.server import search_web
+    from web_mcp.tools.search import search_web
 
     mock_results = [
         {
@@ -74,8 +74,8 @@ async def test_search_web_tool_accepts_time_range_param():
         }
     ]
 
-    with patch("web_mcp.server.search", new_callable=AsyncMock) as mock_search:
-        with patch("web_mcp.server.deduplicate_results", return_value=mock_results):
+    with patch("web_mcp.tools.search.search", new_callable=AsyncMock) as mock_search:
+        with patch("web_mcp.tools.search.deduplicate_results", return_value=mock_results):
             mock_search.return_value = mock_results
 
             result = await search_web(query="test query", time_range="day")
@@ -86,7 +86,7 @@ async def test_search_web_tool_accepts_time_range_param():
 
 async def test_search_web_tool_without_time_range():
     """Verify search_web works without time_range (default behavior)."""
-    from web_mcp.server import search_web
+    from web_mcp.tools.search import search_web
 
     mock_results = [
         {
@@ -97,8 +97,8 @@ async def test_search_web_tool_without_time_range():
         }
     ]
 
-    with patch("web_mcp.server.search", new_callable=AsyncMock) as mock_search:
-        with patch("web_mcp.server.deduplicate_results", return_value=mock_results):
+    with patch("web_mcp.tools.search.search", new_callable=AsyncMock) as mock_search:
+        with patch("web_mcp.tools.search.deduplicate_results", return_value=mock_results):
             mock_search.return_value = mock_results
 
             await search_web(query="test query")
@@ -110,7 +110,7 @@ async def test_search_web_tool_without_time_range():
 
 async def test_brave_search_passes_time_range():
     """Verify brave_search tool passes time_range to Brave API."""
-    from web_mcp.server import brave_search
+    from web_mcp.tools.search import brave_search
 
     mock_results = [
         {
@@ -121,7 +121,7 @@ async def test_brave_search_passes_time_range():
     ]
 
     with patch("web_mcp.brave.search", new_callable=AsyncMock) as mock_brave:
-        with patch("web_mcp.server.deduplicate_results", return_value=mock_results):
+        with patch("web_mcp.tools.search.deduplicate_results", return_value=mock_results):
             mock_brave.return_value = mock_results
 
             await brave_search(query="test query", time_range="month")

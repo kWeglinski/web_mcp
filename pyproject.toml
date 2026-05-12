@@ -87,6 +87,9 @@ module = [
     "web_mcp.security",
     "web_mcp.research.*",
     "web_mcp.searxng",
+    "web_mcp.tools.*",
+    "web_mcp.admin.*",
+    "web_mcp.path_routing",
 ]
 ignore_errors = true
 

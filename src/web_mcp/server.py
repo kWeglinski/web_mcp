@@ -1,63 +1,22 @@
 """Web Browsing MCP Server - Browse the web with context-aware content extraction."""
 
-import json
 import os
 import sys
-import time
 from contextlib import asynccontextmanager
-from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from datetime import UTC
 
 from mcp.server.auth.provider import AccessToken, TokenVerifier
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
-from pydantic import AnyHttpUrl, Field
 
-from web_mcp.charts import ChartConfig, ChartError, create_chart
-from web_mcp.config import get_config
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
-from web_mcp.extractors.custom import CustomSelectorExtractor
-from web_mcp.extractors.trafilatura import TrafilaturaExtractor
-from web_mcp.fetcher import (
-    FetchedContent,
-    FetchError,
-    fetch_url_with_metadata,
-)
 from web_mcp.logging import get_logger, setup_logging
-from web_mcp.pdf_processor import (
-    PDFCache,
-    PDFExtractionError,
-    is_pdf_content_type,
-    paginate_markdown,
-    pdf_to_markdown,
-)
-from web_mcp.playwright_fetcher import PlaywrightFetchError
-from web_mcp.research.bm25 import BM25
-from web_mcp.research.chunker import chunk_text
-from web_mcp.searxng import deduplicate_results, search
-from web_mcp.security import validate_url, validate_url_ip
 
-BM25_CHUNK_SIZE = 500
-BM25_CHUNK_OVERLAP = 50
-BM25_TOP_CHUNKS = 5
-MAX_FALLBACK_TEXT_LENGTH = 10000
-MAX_FALLBACK_HTML_LENGTH = 2000
+setup_logging()
 
-HTML_WRAPPER_TEMPLATE = """<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'unsafe-inline' 'unsafe-eval' data:; script-src 'none'; object-src 'none';">
-</head>
-<body>
-{content}
-</body>
-</html>"""
+logger = get_logger(__name__)
 
 
 class StaticTokenVerifier:
@@ -74,6 +33,8 @@ class StaticTokenVerifier:
 
 def create_auth_config() -> tuple[TokenVerifier | None, AuthSettings | None]:
     """Create auth configuration if WEB_MCP_AUTH_TOKEN is set."""
+    from pydantic import AnyHttpUrl
+
     auth_token = os.environ.get("WEB_MCP_AUTH_TOKEN")
     if auth_token:
         server_url = f"http://{SERVER_HOST}:{SERVER_PORT}"
@@ -89,97 +50,12 @@ def create_auth_config() -> tuple[TokenVerifier | None, AuthSettings | None]:
 
 SERVER_HOST = os.environ.get("WEB_MCP_SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.environ.get("WEB_MCP_SERVER_PORT", "8000"))
-VERSION = "1.0.0"
 
 OUTPUT_SCHEMAS = os.environ.get("WEB_MCP_OUTPUT_SCHEMAS", "").lower() in ("true", "1", "yes")
-
-_SEARCH_PROVIDER = os.environ.get("WEB_MCP_SEARCH_PROVIDER", "searxng")  # searxng or brave
 
 setup_logging()
 
 logger = get_logger(__name__)
-
-SERVER_START_TIME: float = time.time()
-
-_request_count: int = 0
-_cache_hits: int = 0
-
-
-def increment_request_count() -> None:
-    """Increment the request count."""
-    global _request_count
-    _request_count += 1
-
-
-def increment_cache_hits() -> None:
-    """Increment the cache hits counter."""
-    global _cache_hits
-    _cache_hits += 1
-
-
-def get_health_metrics() -> dict:
-    """Get health metrics for the /health endpoint.
-
-    Returns:
-        Dictionary with health metrics
-    """
-    global _request_count, _cache_hits
-    uptime = time.time() - SERVER_START_TIME
-
-    total_requests = _request_count + _cache_hits
-    cache_hit_rate = (_cache_hits / total_requests) if total_requests > 0 else 0.0
-
-    from web_mcp.searxng import get_search_metrics
-
-    search = get_search_metrics()
-
-    return {
-        "status": "healthy",
-        "version": VERSION,
-        "cache_hit_rate": round(cache_hit_rate, 4),
-        "request_count": _request_count,
-        "uptime_seconds": round(uptime, 2),
-        "search": search,
-    }
-
-
-def _rank_chunks_with_bm25(text: str, url: str, title: str, query: str) -> str:
-    """Rank text chunks using BM25 and return top chunks.
-
-    Args:
-        text: The text to chunk and rank
-        url: Source URL for chunk metadata
-        title: Title for chunk metadata
-        query: The search query for BM25 ranking
-
-    Returns:
-        Top ranked chunks joined by separator, or fallback text if chunking fails
-    """
-    chunks = chunk_text(
-        text,
-        url,
-        title,
-        chunk_size=BM25_CHUNK_SIZE,
-        overlap=BM25_CHUNK_OVERLAP,
-    )
-
-    if not chunks:
-        fallback_len = min(len(text), MAX_FALLBACK_TEXT_LENGTH)
-        return text[:fallback_len]
-
-    documents = [{"text": c.text, "chunk": c} for c in chunks]
-    bm25 = BM25()
-    bm25.fit(documents, text_field="text")
-    ranked = bm25.rank(query)
-
-    top_chunks = ranked[:BM25_TOP_CHUNKS]
-
-    parts = []
-    for doc, _score in top_chunks:
-        chunk = doc["chunk"]
-        parts.append(chunk.text)
-
-    return "\n\n---\n\n".join(parts)
 
 
 @asynccontextmanager
@@ -269,634 +145,208 @@ async def serve_chart_image(request):
         return Response(content="Invalid image data", status_code=500)
 
 
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
-async def render_html(
-    content: str = Field(
-        description="HTML body content to render (will be wrapped in a basic HTML document)"
-    ),
-) -> str:
-    """Store HTML body content and return a viewable URL. Only provide the body/inner HTML - it will be wrapped in a basic HTML5 document with proper viewport meta tags. Requires WEB_MCP_PUBLIC_URL. Content expires after 1 hour."""
-    increment_request_count()
-
-    config = get_config()
-
-    if not config.public_url:
-        return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL (e.g., https://mcp.example.com)"
-
-    html = HTML_WRAPPER_TEMPLATE.format(content=content)
-
-    store = get_content_store()
-    content_id, token = store.store(html, content_type="text/html")
-
-    url = f"{config.public_url}/c/{content_id}?token={token}"
-
-    return url
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
-async def health() -> dict[str, Any]:
-    """Get server health metrics: cache hit rate, request count, uptime."""
-    increment_request_count()
-    logger.info("Health check requested")
-    return get_health_metrics()
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True), structured_output=OUTPUT_SCHEMAS)
-async def current_datetime(
-    timezone: str = Field(default="UTC", description="Timezone (e.g., UTC, America/New_York)"),
-    format: str = Field(default="iso", description="Format: iso, unix, or readable"),
-) -> str:
-    """Get current date/time in specified timezone. Formats: iso, unix, readable."""
-    from datetime import datetime
-    from zoneinfo import ZoneInfo
-
-    increment_request_count()
-
-    try:
-        if timezone.upper() == "UTC":
-            now = datetime.now(UTC)
-        else:
-            tz_info = ZoneInfo(timezone)
-            now = datetime.now(tz_info)
-
-        if format == "unix":
-            return str(int(now.timestamp()))
-        elif format == "readable":
-            return now.strftime("%A, %B %d, %Y at %I:%M:%S %p %Z")
-        else:
-            return now.isoformat()
-    except Exception as e:
-        return f"Error: {e}"
-
-
-_default_extractor = TrafilaturaExtractor()
-_custom_extractor = CustomSelectorExtractor()
-
-_pdf_cache = PDFCache(ttl_seconds=3600)
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    structured_output=OUTPUT_SCHEMAS,
-)
-async def get_page(
-    url: str = Field(description="URL to fetch"),
-    query: str | None = Field(
-        default=None, description="Return only BM25-relevant chunks for this query"
-    ),
-    extractor: str = Field(
-        default="trafilatura", description="Extractor: trafilatura, readability, or custom"
-    ),
-    page: int = Field(default=0, description="For PDFs: page number to retrieve (0-indexed)"),
-) -> str:
-    """Fetch and extract main content from a URL (HTML or PDF). Use query for BM25-ranked chunk retrieval. For large PDFs, use page parameter to paginate through content."""
-    if page < 0:
-        return "Error: page parameter must be non-negative"
-
-    config = get_config()
-
-    try:
-        fetched = await fetch_url_with_metadata(url, config)
-    except FetchError as e:
-        if config.playwright_enabled:
-            logger.info(f"tls-client fetch failed ({e}), trying Playwright fallback for: {url}")
-            try:
-                from web_mcp.playwright_fetcher import fetch_with_playwright_cached as pw_cached
-
-                html = await pw_cached(url, config)
-                fetched = FetchedContent(
-                    content=html.encode("utf-8"), content_type="text/html", url=url
-                )
-            except PlaywrightFetchError as pe:
-                return f"Error fetching URL (tls-client and Playwright both failed): {pe}"
-        else:
-            return f"Error fetching URL: {e}"
-
-    if is_pdf_content_type(fetched.content_type):
-        markdown_text = _pdf_cache.get(url)
-        if markdown_text is None:
-            try:
-                markdown_text = pdf_to_markdown(fetched.content, url)
-            except PDFExtractionError as e:
-                return f"Error processing PDF: {e}"
-
-            _pdf_cache.set(url, markdown_text)
-
-        if query:
-            return _rank_chunks_with_bm25(markdown_text, url, "PDF Document", query)
-
-        paginated = paginate_markdown(markdown_text, page=page)
-        current = paginated.current_page
-        total = paginated.total_pages
-        content = paginated.content
-
-        if total == 1:
-            return content
-
-        next_page = current + 1
-
-        if current == 0:
-            header = f"[📄 CHUNK {current}/{total} - This PDF is split into {total} chunks due to size.]\n[To get more content, call: get_page(url, page=1), get_page(url, page=2), etc.]\n\n"
-            footer = (
-                f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
-            )
-        elif current == total - 1:
-            header = f"[📄 CHUNK {current}/{total} - Final chunk]\n\n"
-            footer = f"\n\n---\nEnd of chunk {current}/{total} (final)."
-        else:
-            header = f"[📄 CHUNK {current}/{total}]\n\n"
-            footer = (
-                f"\n\n---\nEnd of chunk {current}/{total}. Use page={next_page} for more content."
-            )
-
-        return f"{header}{content}{footer}"
-
-    html = fetched.content.decode("utf-8", errors="replace")
-
-    if query:
-        try:
-            extracted = await _default_extractor.extract(html, url)
-        except Exception as e:
-            return f"Error extracting content: {e}"
-
-        if not extracted.text or not extracted.text.strip():
-            return "No content extracted from page"
-
-        ranked_result = _rank_chunks_with_bm25(extracted.text, url, extracted.title or url, query)
-
-        header = f"Title: {extracted.title}\n\n" if extracted.title else ""
-        return header + ranked_result
-
-    if extractor == "readability":
-        from web_mcp.extractors.readability import ReadabilityExtractor
-
-        extractor_obj = ReadabilityExtractor()
-    elif extractor == "custom":
-        extractor_obj = _custom_extractor
-    else:
-        extractor_obj = _default_extractor
-
-    try:
-        extracted = await extractor_obj.extract(html, url)
-    except Exception as e:
-        return f"Error extracting content: {e}"
-
-    return extracted.text
-
-
-async def _search_web_brave_fallback(query: str) -> list[dict] | None:
-    """Attempt Brave search as fallback when SearXNG returns no results."""
-    from web_mcp.brave import BraveSearchError, get_brave_api_key
-
-    if not get_brave_api_key():
-        return None
-
-    try:
-        from web_mcp.brave import search as brave_search_impl
-
-        results = await brave_search_impl(query, max_results=20)
-        if results:
-            logger.info(f"[search_web] Brave fallback returned {len(results)} results")
-            return results
-    except (BraveSearchError, Exception) as e:
-        logger.warning(f"[search_web] Brave fallback failed: {e}")
-
-    return None
-
-
-async def _search_brave(query: str) -> str:
-    """Primary Brave search implementation."""
-    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown
-    from web_mcp.brave import search as brave_search_impl
-
-    try:
-        results = await brave_search_impl(query, max_results=5)
-        if not results:
-            return "*No search results found*"
-
-        from web_mcp.research.bm25 import rerank_search_results
-
-        results = rerank_search_results(results, query)
-        json_data = {"web": {"results": results}}
-        return parse_brave_to_markdown(json_data, query, max_results=5)
-
-    except BraveSearchError as e:
-        return f"*Brave Search failed: {e.message}*"
-
-
-async def _search_searxng(query: str, time_range: str | None = None) -> str:
-    """Primary SearXNG search with Brave fallback implementation."""
-    from web_mcp.searxng import parse_searxng_to_markdown
-
-    try:
-        results = await search(query, 30, time_range=time_range)
-
-        if results:
-            results = deduplicate_results(results)
-
-        has_meaningful = any(
-            r.get("score", 0) or r.get("bm25_score", 0) or (r.get("content") or r.get("snippet"))
-            for r in results
-        )
-        if not has_meaningful:
-            logger.info(
-                "[search_web] SearXNG returned no meaningful results, trying Brave fallback"
-            )
-            brave_results = await _search_web_brave_fallback(query)
-            if brave_results:
-                results = brave_results
-
-        if results:
-            from web_mcp.research.bm25 import rerank_search_results
-
-            results = rerank_search_results(results, query)
-
-        json_data = {"results": results}
-        return parse_searxng_to_markdown(json_data, query, max_results=5)
-
-    except Exception as e:
-        logger.warning(f"[search_web] SearXNG failed: {e}, trying Brave fallback")
-        brave_results = await _search_web_brave_fallback(query)
-        if brave_results:
-            from web_mcp.research.bm25 import rerank_search_results
-
-            brave_results = rerank_search_results(brave_results, query)
-            json_data = {"results": brave_results}
-            return parse_searxng_to_markdown(json_data, query, max_results=5)
-
-        return f"*Search failed: {e}*"
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    structured_output=OUTPUT_SCHEMAS,
-)
-async def search_web(
-    query: str = Field(description="Search query"),
-    time_range: str | None = Field(
-        default=None, description="Time range filter: day, week, month, or year"
-    ),
-) -> str:
-    """Search the web via SearXNG. Returns top 5 results ranked by BM25 relevance."""
-    if _SEARCH_PROVIDER == "brave":
-        return await _search_brave(query)
-
-    return await _search_searxng(query, time_range=time_range)
-
-
-@mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
-async def search_metrics() -> dict:
-    """Get search analytics: provider success rates, cache hit rate, avg latency."""
-    from web_mcp.searxng import get_search_metrics
-
-    return get_search_metrics()
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(readOnlyHint=True, openWorldHint=True),
-    structured_output=OUTPUT_SCHEMAS,
-)
-async def brave_search(
-    query: str = Field(description="Search query"),
-    time_range: str | None = Field(
-        default=None,
-        description="Time range filter: day, week, month, year (SearXNG) or fresh/very_fresh (Brave)",
-    ),
-) -> str:
-    """Search the web via Brave Search API (primary). Use WEB_MCP_SEARCH_PROVIDER=brave to make it default."""
-    from web_mcp.brave import BraveSearchError, parse_brave_to_markdown
-    from web_mcp.brave import search as brave_search_impl
-
-    try:
-        results = await brave_search_impl(query, max_results=5, time_range=time_range)
-
-        if results:
-            results = deduplicate_results(results)
-
-        json_data = {
-            "web": {
-                "results": [
-                    {
-                        "title": r["title"],
-                        "url": r["url"],
-                        "description": r["snippet"],
-                        "page_age": r.get("published_date", ""),
-                        "profile": {"name": ""},
-                    }
-                    for r in results
-                ]
-            }
-        }
-        return parse_brave_to_markdown(json_data, query, max_results=5)
-
-    except BraveSearchError as e:
-        return f"*Brave Search failed: {e.message}*"
-    except Exception as e:
-        return f"*Brave Search failed: {e}*"
-
-
-@mcp.tool(annotations=ToolAnnotations(openWorldHint=True), structured_output=OUTPUT_SCHEMAS)
-async def create_chart_tool(
-    type: str = Field(
-        description="Chart type: line, bar, scatter, pie, area, histogram, box, heatmap, treemap, sunburst, funnel, gauge, indicator, bubble"
-    ),
-    data: dict = Field(description="Chart data (keys: x, y, values, labels, names, etc.)"),
-    title: str = Field(default="", description="Chart title"),
-    x_label: str = Field(default="", description="X-axis label"),
-    y_label: str = Field(default="", description="Y-axis label"),
-    options: dict = Field(
-        default_factory=dict, description="Styling: width, height, template, colors"
-    ),
-    output: str = Field(default="url", description="Output: url or image"),
-) -> str:
-    """Create interactive Plotly chart. Output as URL (requires WEB_MCP_PUBLIC_URL) or PNG image."""
-    increment_request_count()
-
-    valid_types = [
-        "line",
-        "bar",
-        "scatter",
-        "pie",
-        "area",
-        "histogram",
-        "box",
-        "heatmap",
-        "treemap",
-        "sunburst",
-        "funnel",
-        "gauge",
-        "indicator",
-        "bubble",
-    ]
-    if type not in valid_types:
-        return f"Error: Invalid chart type '{type}'. Valid types: {', '.join(valid_types)}"
-
-    valid_outputs = ["url", "image"]
-    if output not in valid_outputs:
-        return f"Error: Invalid output format '{output}'. Valid formats: {', '.join(valid_outputs)}"
-
-    config = get_config()
-
-    if output == "url" and not config.public_url:
-        return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for URL output."
-
-    if output == "image" and not config.public_url:
-        return "Error: WEB_MCP_PUBLIC_URL not configured. Set it to your server's public URL for image output."
-
-    try:
-        from web_mcp.charts.generator import CHART_TYPES, create_chart_image_bytes
-
-        chart_type: CHART_TYPES = type  # type: ignore
-        chart_config = ChartConfig(
-            type=chart_type,
-            title=title,
-            x_label=x_label,
-            y_label=y_label,
-            data=data,
-            options=options,
-        )
-
-        if output == "image":
-            img_bytes = create_chart_image_bytes(chart_config)
-            store = get_content_store()
-            content_id, token = store.store(img_bytes, content_type="image/png")
-            url = f"{config.public_url}/i/{content_id}.png?token={token}"
-            return f"{url}\n\nEmbed in markdown: ![chart]({url})"
-        else:
-            html = create_chart(chart_config)
-            store = get_content_store()
-            content_id, token = store.store(html, content_type="text/html")
-            url = f"{config.public_url}/c/{content_id}?token={token}"
-            return url
-    except ChartError as e:
-        return f"Error creating chart: {e}"
-    except Exception as e:
-        return f"Error: {e}"
-
-
-@mcp.tool(
-    annotations=ToolAnnotations(destructiveHint=True, openWorldHint=True),
-    structured_output=OUTPUT_SCHEMAS,
-)
-async def run_javascript(
-    code: str = Field(description="JavaScript code to execute"),
-    timeout_ms: int = Field(default=5000, description="Timeout in ms"),
-    context: dict = Field(default_factory=dict, description="Variables to inject into JS context"),
-) -> str:
-    """Execute JavaScript in sandboxed V8. Supports async/await and fetch(). Has SSRF protection."""
-    import asyncio
-
-    import httpx
-
-    config = get_config()
-    increment_request_count()
-
-    code = code.strip()
-    if (code.startswith('"') and code.endswith('"')) or (
-        code.startswith("'") and code.endswith("'")
-    ):
-        code = code[1:-1]
-
-    try:
-        from py_mini_racer import MiniRacer
-    except ImportError:
-        return "Error: mini-racer not installed. Run: pip install mini-racer"
-
-    fetch_state = {"fetch_count": 0, "total_bytes": 0}
-
-    async def py_fetch(url: str, options: dict = None) -> str:
-        """HTTP fetch implementation with security controls - returns JSON string."""
-        options = options or {}
-
-        if not validate_url(url):
-            return json.dumps({"error": "Invalid URL: must use http or https scheme", "status": 0})
-        if not validate_url_ip(url):
-            return json.dumps(
-                {"error": "URL resolves to private/restricted IP address", "status": 0}
-            )
-
-        if fetch_state["fetch_count"] >= config.js_fetch_max_requests:
-            return json.dumps(
-                {
-                    "error": f"Fetch limit exceeded (max {config.js_fetch_max_requests} requests)",
-                    "status": 0,
-                }
-            )
-
-        method = options.get("method", "GET")
-        headers = options.get("headers", {})
-        body = options.get("body")
-        timeout = options.get("timeout", config.js_fetch_timeout) / 1000.0
-
-        try:
-            verify_ssl = config.js_fetch_verify_ssl
-
-            async with httpx.AsyncClient(timeout=timeout, verify=verify_ssl) as client:
-                async with client.stream(
-                    method=method,
-                    url=url,
-                    headers=headers,
-                    content=body,
-                    follow_redirects=True,
-                ) as response:
-                    content_length = response.headers.get("content-length")
-                    if content_length:
-                        size = int(content_length)
-                        if size > config.js_fetch_max_response_size:
-                            return json.dumps(
-                                {
-                                    "error": f"Response too large: {size} bytes (max {config.js_fetch_max_response_size})",
-                                    "status": 0,
-                                }
-                            )
-                        if fetch_state["total_bytes"] + size > config.js_fetch_max_total_bytes:
-                            return json.dumps(
-                                {
-                                    "error": f"Total fetch limit exceeded (max {config.js_fetch_max_total_bytes} bytes)",
-                                    "status": 0,
-                                }
-                            )
-
-                    body_bytes = b""
-                    async for chunk in response.aiter_bytes():
-                        body_bytes += chunk
-                        if len(body_bytes) > config.js_fetch_max_response_size:
-                            return json.dumps(
-                                {
-                                    "error": f"Response exceeded size limit ({config.js_fetch_max_response_size} bytes)",
-                                    "status": 0,
-                                }
-                            )
-                        if (
-                            fetch_state["total_bytes"] + len(body_bytes)
-                            > config.js_fetch_max_total_bytes
-                        ):
-                            return json.dumps(
-                                {
-                                    "error": f"Total fetch limit exceeded (max {config.js_fetch_max_total_bytes} bytes)",
-                                    "status": 0,
-                                }
-                            )
-
-                    fetch_state["fetch_count"] += 1
-                    fetch_state["total_bytes"] += len(body_bytes)
-
-                    result = {
-                        "status": response.status_code,
-                        "statusText": response.reason_phrase,
-                        "headers": dict(response.headers),
-                        "body": body_bytes.decode("utf-8", errors="replace"),
-                    }
-                    return json.dumps(result)
-
-        except httpx.TimeoutException:
-            return json.dumps({"error": f"Request timed out after {timeout}s", "status": 0})
-        except Exception as e:
-            return json.dumps({"error": str(e), "status": 0})
-
-    try:
-        mr = MiniRacer()
-
-        context_lines = []
-        for key, value in context.items():
-            if not key.isidentifier():
-                return (
-                    f"Error: Invalid context variable name '{key}'. Must be a valid JS identifier."
-                )
-            context_lines.append(f"const {key} = {json.dumps(value)};")
-
-        context_code = "\n".join(context_lines)
-
-        code_trimmed = code.strip()
-        is_statement = code_trimmed.endswith((";", "}")) or (
-            code_trimmed.endswith(")")
-            and not (code_trimmed.startswith("(") or code_trimmed.startswith("["))
-        )
-
-        if is_statement:
-            full_code = f"(async () => {{\n{context_code}\n{code_trimmed}\n}})()"
-        else:
-            if context_code:
-                full_code = f"(async () => {{\n{context_code}\nreturn JSON.stringify({code_trimmed});\n}})()"
-            else:
-                full_code = f"(async () => {{ return JSON.stringify({code_trimmed}); }})()"
-
-        effective_timeout_ms = min(timeout_ms, config.js_execution_timeout)
-        timeout_sec = effective_timeout_ms / 1000.0
-
-        async with mr._ctx.wrap_py_function_as_js_function(py_fetch) as js_fetch:
-            global_obj = await mr._ctx.eval_cancelable("globalThis")
-            global_obj["__fetch_raw"] = js_fetch
-
-            await mr._ctx.eval_cancelable("""
-                class Response {
-                    constructor(data) {
-                        this._body = data.body || '';
-                        this.status = data.status || 0;
-                        this.statusText = data.statusText || '';
-                        this.headers = data.headers || {};
-                        this.ok = this.status >= 200 && this.status < 300;
-                    }
-
-                    json() {
-                        return JSON.parse(this._body);
-                    }
-
-                    text() {
-                        return this._body;
-                    }
-
-                    get body() {
-                        return this._body;
-                    }
-                }
-
-                async function fetch(url, options) {
-                    const s = await __fetch_raw(url, options || {});
-                    const data = JSON.parse(s);
-                    if (data.error) {
-                        throw new Error(data.error);
-                    }
-                    return new Response(data);
-                }
-            """)
-
-            try:
-                result = await asyncio.wait_for(mr.eval_cancelable(full_code), timeout=timeout_sec)
-            except TimeoutError:
-                return f"Error: Execution timed out after {effective_timeout_ms}ms"
-
-            if hasattr(result, "__class__") and "Promise" in result.__class__.__name__:
-                try:
-                    result = await asyncio.wait_for(
-                        mr._ctx.await_promise(result), timeout=timeout_sec
-                    )
-                except TimeoutError:
-                    return f"Error: Execution timed out after {effective_timeout_ms}ms"
-
-        if result is None:
-            return "null"
-
-        if isinstance(result, str):
-            try:
-                parsed = json.loads(result)
-                return json.dumps(parsed, ensure_ascii=False, indent=2)
-            except json.JSONDecodeError:
-                return result
-
-        if isinstance(result, (int, float, bool)):
-            return json.dumps(result)
-
-        return str(result)
-
-    except Exception as e:
-        error_msg = str(e)
-        return f"Error: {error_msg}"
+# ---------------------------------------------------------------------------
+# Tool registry and registration
+# ---------------------------------------------------------------------------
+
+TOOL_REGISTRY: dict[str, dict] = {
+    "get_page": {
+        "name": "get_page",
+        "description": "Fetch and extract content from a URL",
+        "is_read_only": True,
+        "module": "tools.fetching",
+    },
+    "render_html": {
+        "name": "render_html",
+        "description": "Store HTML body content and return a viewable URL",
+        "is_read_only": True,
+        "module": "tools.fetching",
+    },
+    "search_web": {
+        "name": "search_web",
+        "description": "Search the web using SearXNG",
+        "is_read_only": True,
+        "module": "tools.search",
+    },
+    "brave_search": {
+        "name": "brave_search",
+        "description": "Search the web via Brave Search API",
+        "is_read_only": True,
+        "module": "tools.search",
+    },
+    "search_metrics": {
+        "name": "search_metrics",
+        "description": "Get search analytics",
+        "is_read_only": True,
+        "module": "tools.search",
+    },
+    "health": {
+        "name": "health",
+        "description": "Get server health metrics",
+        "is_read_only": True,
+        "module": "tools.utils",
+    },
+    "current_datetime": {
+        "name": "current_datetime",
+        "description": "Get current date/time in specified timezone",
+        "is_read_only": True,
+        "module": "tools.utils",
+    },
+    "create_chart_tool": {
+        "name": "create_chart_tool",
+        "description": "Create interactive Plotly chart",
+        "is_read_only": False,
+        "module": "tools.advanced",
+    },
+    "run_javascript": {
+        "name": "run_javascript",
+        "description": "Execute JavaScript in sandboxed V8",
+        "is_read_only": False,
+        "destructive": True,
+        "module": "tools.advanced",
+    },
+}
+
+
+def _register_tool(mcp, fn, annotations=None, structured_output=False) -> None:
+    """Register a tool function on an MCP instance."""
+    mcp.add_tool(fn, annotations=annotations, structured_output=structured_output)
+
+
+def register_all_tools(mcp: FastMCP) -> None:
+    """Register all tools on an MCP instance."""
+    from web_mcp.tools.advanced import create_chart_tool, run_javascript
+    from web_mcp.tools.fetching import get_page, render_html
+    from web_mcp.tools.search import brave_search, search_metrics, search_web
+    from web_mcp.tools.utils import current_datetime, health
+
+    ro = ToolAnnotations(readOnlyHint=True)
+    ro_ow = ToolAnnotations(readOnlyHint=True, openWorldHint=True)
+    ro_destructive = ToolAnnotations(destructiveHint=True, openWorldHint=True)
+
+    _register_tool(mcp, get_page, ro_ow, OUTPUT_SCHEMAS)
+    _register_tool(mcp, render_html, ro, OUTPUT_SCHEMAS)
+    _register_tool(mcp, search_web, ro_ow, OUTPUT_SCHEMAS)
+    _register_tool(mcp, brave_search, ro_ow, OUTPUT_SCHEMAS)
+    _register_tool(mcp, search_metrics, ro, None)
+    _register_tool(mcp, health, ro, OUTPUT_SCHEMAS)
+    _register_tool(mcp, current_datetime, ro, OUTPUT_SCHEMAS)
+    _register_tool(mcp, create_chart_tool, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS)
+    _register_tool(mcp, run_javascript, ro_destructive, OUTPUT_SCHEMAS)
+
+
+def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
+    """Register only the specified tools on an MCP instance."""
+    from web_mcp.tools import advanced, fetching, search, utils
+
+    all_tools: dict[str, tuple] = {
+        "get_page": (
+            fetching.get_page,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "render_html": (fetching.render_html, ToolAnnotations(readOnlyHint=True), OUTPUT_SCHEMAS),
+        "search_web": (
+            search.search_web,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "brave_search": (
+            search.brave_search,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "search_metrics": (search.search_metrics, ToolAnnotations(readOnlyHint=True), None),
+        "health": (utils.health, ToolAnnotations(readOnlyHint=True), OUTPUT_SCHEMAS),
+        "current_datetime": (
+            utils.current_datetime,
+            ToolAnnotations(readOnlyHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "create_chart_tool": (
+            advanced.create_chart_tool,
+            ToolAnnotations(openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "run_javascript": (
+            advanced.run_javascript,
+            ToolAnnotations(destructiveHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+    }
+
+    for name in tool_names:
+        tool_entry = all_tools.get(name)
+        if tool_entry is None:
+            logger.warning(f"Unknown tool '{name}', skipping")
+            continue
+        fn, annotations, structured_output = tool_entry
+        _register_tool(mcp, fn, annotations, structured_output)
+
+
+def create_default_mcp() -> FastMCP:
+    """Create the default MCP instance with all tools."""
+    _token_verifier, _auth_settings = create_auth_config()
+    return FastMCP(
+        name="web-browsing",
+        instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
+        "Use `get_page` to browse websites and extract their main content, "
+        "`search_web` to search the web using SearXNG.",
+        host=SERVER_HOST,
+        port=SERVER_PORT,
+        lifespan=lifespan,
+        token_verifier=_token_verifier,
+        auth=_auth_settings,
+    )
+
+
+def build_admin_mode() -> None:
+    """Build and run in admin/multi-path mode."""
+    from web_mcp.admin import create_admin_routes
+    from web_mcp.admin.storage import ConfigStorage
+    from web_mcp.path_routing import PathConfig, PathRouter, validate_path
+
+    routing = PathRouter()
+
+    # Create default MCP with all tools
+    default_mcp = create_default_mcp()
+    register_all_tools(default_mcp)  # imports from tools/
+    routing.set_default(default_mcp)
+
+    # Load admin config and build path-specific MCPs
+    storage = ConfigStorage()
+    config = storage.get_paths()
+    for path, path_config in config.items():
+        if not validate_path(path):
+            continue
+        mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
+        register_tools_for_path(mcp, path_config.get("enabled_tools", []))
+        routing.add_path(PathConfig(path, mcp, path_config.get("name", path)))
+
+    # Build admin routes
+    admin_routes = create_admin_routes(routing)
+
+    # Build Starlette app
+    app = routing.build_starlette_app(admin_routes)
+
+    # Run with uvicorn
+    import uvicorn
+
+    logger.info(f"Starting admin mode on http://{SERVER_HOST}:{SERVER_PORT}")
+    uvicorn.run(app, host=SERVER_HOST, port=SERVER_PORT)
 
 
 def main():
     """Run the MCP server."""
     import sys
+
+    if "--admin" in sys.argv or os.environ.get("WEB_MCP_ADMIN_ENABLED", "").lower() in (
+        "true",
+        "1",
+        "yes",
+    ):
+        build_admin_mode()
+        return
 
     tools = "get_page, search_web, brave_search, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics"
 

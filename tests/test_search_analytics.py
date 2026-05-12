@@ -61,7 +61,7 @@ def test_search_analytics_in_health_endpoint():
 
     _record_search("searxng", True, 100.0)
 
-    from web_mcp.server import get_health_metrics
+    from web_mcp.tools._core import get_health_metrics
 
     health = get_health_metrics()
     assert "search" in health
