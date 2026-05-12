@@ -65,7 +65,7 @@ class TestJavascriptSSRFProtection:
         """Test that fetching 127.0.0.1 is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://127.0.0.1/admin')).text()", timeout_ms=5000, context={}
             )
@@ -77,7 +77,7 @@ class TestJavascriptSSRFProtection:
         """Test that fetching 10.x.x.x is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://10.0.0.1/secret')).text()", timeout_ms=5000, context={}
             )
@@ -89,7 +89,7 @@ class TestJavascriptSSRFProtection:
         """Test that fetching 172.16.x.x is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://172.16.0.1/internal')).text()",
                 timeout_ms=5000,
@@ -103,7 +103,7 @@ class TestJavascriptSSRFProtection:
         """Test that fetching 192.168.x.x is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://192.168.1.1/router')).text()",
                 timeout_ms=5000,
@@ -117,7 +117,7 @@ class TestJavascriptSSRFProtection:
         """Test that fetching localhost hostname is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://localhost:8080/api')).text()",
                 timeout_ms=5000,
@@ -131,7 +131,7 @@ class TestJavascriptSSRFProtection:
         """Test that ftp:// URLs are blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('ftp://example.com/file')).text()", timeout_ms=5000, context={}
             )
@@ -143,7 +143,7 @@ class TestJavascriptSSRFProtection:
         """Test that file:// URLs are blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('file:///etc/passwd')).text()", timeout_ms=5000, context={}
             )
@@ -155,7 +155,7 @@ class TestJavascriptSSRFProtection:
         """Test that javascript: URLs are blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('javascript:alert(1)')).text()", timeout_ms=5000, context={}
             )
@@ -174,8 +174,8 @@ class TestJavascriptSSRFProtection:
         )
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://api.example.com/data')).status",
@@ -190,7 +190,7 @@ class TestJavascriptSSRFProtection:
         """Test that link-local IP 169.254.x.x is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://169.254.0.1/metadata')).text()",
                 timeout_ms=5000,
@@ -204,7 +204,7 @@ class TestJavascriptSSRFProtection:
         """Test that IPv6 loopback ::1 is blocked."""
         from web_mcp.tools.advanced import run_javascript
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
             result = await run_javascript(
                 code="(await fetch('http://[::1]/admin')).text()", timeout_ms=5000, context={}
             )
@@ -234,8 +234,8 @@ class TestJavascriptRateLimiting:
         return results;
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(code=code, timeout_ms=5000, context={})
 
@@ -260,8 +260,8 @@ class TestJavascriptRateLimiting:
         return JSON.stringify(results);
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(code=code, timeout_ms=5000, context={})
 
@@ -289,8 +289,8 @@ class TestJavascriptRateLimiting:
         return results;
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(code=code, timeout_ms=5000, context={})
 
@@ -321,8 +321,8 @@ class TestJavascriptResponseSizeLimit:
 
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/large')).text()",
@@ -355,8 +355,8 @@ class TestJavascriptResponseSizeLimit:
 
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/large')).text()",
@@ -383,8 +383,8 @@ class TestJavascriptResponseSizeLimit:
         mock_response = create_mock_async_context(content=content, status_code=200)
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/small')).text()",
@@ -418,8 +418,8 @@ class TestJavascriptResponseSizeLimit:
 
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/chunked')).text()",
@@ -445,8 +445,8 @@ class TestJavascriptSSLVerification:
         mock_response = create_mock_async_context(content=content, status_code=200)
         mock_client_instance = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient") as mock_client_class:
                     mock_client_class.return_value = mock_client_instance
                     result = await run_javascript(
@@ -473,8 +473,8 @@ class TestJavascriptSSLVerification:
         mock_response = create_mock_async_context(content=content, status_code=200)
         mock_client_instance = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient") as mock_client_class:
                     mock_client_class.return_value = mock_client_instance
                     result = await run_javascript(
@@ -515,8 +515,8 @@ class TestJavascriptFetchOptions:
         return JSON.stringify(resp.json());
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client_instance):
                     result = await run_javascript(code=code, timeout_ms=5000, context={})
 
@@ -548,8 +548,8 @@ class TestJavascriptFetchOptions:
         return resp.status;
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client_instance):
                     result = await run_javascript(code=code, timeout_ms=5000, context={})
 
@@ -567,8 +567,8 @@ class TestJavascriptFetchOptions:
         mock_response = create_mock_async_context(content=b"", status_code=204, reason="No Content")
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/no-content')).ok",
@@ -586,8 +586,8 @@ class TestJavascriptFetchOptions:
         mock_response = create_mock_async_context(content=b"", status_code=404, reason="Not Found")
         mock_client = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient", return_value=mock_client):
                     result = await run_javascript(
                         code="(await fetch('https://example.com/not-found')).ok",
@@ -611,8 +611,8 @@ class TestJavascriptTimeout:
         mock_response = create_mock_async_context(content=b"ok", status_code=200)
         mock_client_instance = create_mock_client_with_response(mock_response)
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient") as mock_client_class:
                     mock_client_class.return_value = mock_client_instance
                     await run_javascript(
@@ -639,8 +639,8 @@ class TestJavascriptTimeout:
         return resp.text();
         """
 
-        with patch("web_mcp.server.get_config", return_value=mock_config):
-            with patch("web_mcp.server.validate_url_ip", return_value=True):
+        with patch("web_mcp.tools.advanced.get_config", return_value=mock_config):
+            with patch("web_mcp.tools.advanced.validate_url_ip", return_value=True):
                 with patch.object(httpx, "AsyncClient") as mock_client_class:
                     mock_client_class.return_value = mock_client_instance
                     await run_javascript(code=code, timeout_ms=5000, context={})
