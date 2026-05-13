@@ -303,8 +303,7 @@ def create_default_mcp() -> FastMCP:
 def build_admin_mode() -> None:
     """Build and run in admin/multi-path mode."""
     from web_mcp.admin import create_admin_routes
-    from web_mcp.admin.storage import ConfigStorage
-    from web_mcp.path_routing import PathConfig, PathRouter, validate_path
+    from web_mcp.path_routing import PathRouter
 
     routing = PathRouter()
 
@@ -314,14 +313,7 @@ def build_admin_mode() -> None:
     routing.set_default(default_mcp)
 
     # Load admin config and build path-specific MCPs
-    storage = ConfigStorage()
-    config = storage.get_paths()
-    for path, path_config in config.items():
-        if not validate_path(path):
-            continue
-        mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
-        register_tools_for_path(mcp, path_config.get("enabled_tools", []))
-        routing.add_path(PathConfig(path, mcp, path_config.get("name", path)))
+    routing.refresh_from_storage()
 
     # Build admin routes
     admin_routes, admin_router, admin_ui, middleware_classes = create_admin_routes(routing)

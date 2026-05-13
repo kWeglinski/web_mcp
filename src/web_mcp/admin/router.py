@@ -67,6 +67,13 @@ class AdminRouter:
                         status_code=400,
                     )
                 self._storage.set_path_config(path, config)
+            # Sync routing: remove paths no longer in config, add new ones
+            for old_path in list(self._routing.paths):
+                if old_path not in paths:
+                    self._routing.unregister_path(old_path)
+            for path, config in paths.items():
+                if path not in self._routing.paths:
+                    self._routing.register_path(path, config)
             return JSONResponse({"status": "ok", "paths": len(paths)})
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -115,6 +122,7 @@ class AdminRouter:
                 return JSONResponse({"error": "Invalid path configuration"}, status_code=422)
 
             self._storage.set_path_config(path, config.model_dump())
+            self._routing.register_path(path, config.model_dump())
             return JSONResponse({"status": "created", "path": path}, status_code=201)
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -151,6 +159,8 @@ class AdminRouter:
 
             updated = {**existing, **{k: v for k, v in body.items() if k != "path"}}
             self._storage.set_path_config(path, updated)
+            self._routing.unregister_path(path)
+            self._routing.register_path(path, updated)
             return JSONResponse({"status": "updated", "path": path})
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)
@@ -162,6 +172,7 @@ class AdminRouter:
             success = self._storage.delete_path_config(path)
             if not success:
                 return JSONResponse({"error": f"Path not found: {path}"}, status_code=404)
+            self._routing.unregister_path(path)
             return JSONResponse({"status": "deleted", "path": path})
         except Exception as e:
             return JSONResponse({"error": str(e)}, status_code=500)

@@ -42,6 +42,7 @@ class PathRouter:
     def __init__(self):
         self._configs: dict[str, PathConfig] = {}
         self._default_mcp: FastMCP | None = None
+        self._app: Starlette | None = None
 
     @property
     def paths(self) -> list[str]:
@@ -63,6 +64,67 @@ class PathRouter:
     def remove_path(self, path: str) -> bool:
         """Remove a path configuration. Returns True if it existed."""
         return self._configs.pop(path, None) is not None
+
+    def refresh_from_storage(self) -> None:
+        """Reload all paths from ConfigStorage into _configs."""
+        from web_mcp.admin.storage import ConfigStorage
+        from web_mcp.server import register_tools_for_path
+
+        storage = ConfigStorage()
+        for path, path_config in storage.get_paths().items():
+            if path in self._configs:
+                continue
+            mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
+            register_tools_for_path(mcp, path_config.get("enabled_tools", []))
+            self.add_path(
+                PathConfig(
+                    path,
+                    mcp,
+                    path_config.get("name", path),
+                    path_config.get("description", ""),
+                    path_config.get("enabled_tools", []),
+                    path_config.get("requires_auth", True),
+                )
+            )
+
+    def register_path(self, path: str, config_dict: dict) -> None:
+        """Register a single path at runtime and add its route to the app."""
+        from web_mcp.server import register_tools_for_path
+
+        mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
+        register_tools_for_path(mcp, config_dict.get("enabled_tools", []))
+        pc = PathConfig(
+            path,
+            mcp,
+            config_dict.get("name", path),
+            config_dict.get("description", ""),
+            config_dict.get("enabled_tools", []),
+            config_dict.get("requires_auth", True),
+        )
+        self.add_path(pc)
+        self._mount_path_to_app(pc)
+
+    def unregister_path(self, path: str) -> bool:
+        """Remove a path from _configs and its routes from the app."""
+        removed = self.remove_path(path)
+        if removed and self._app is not None:
+            self._remove_path_from_app(path)
+        return removed
+
+    def _mount_path_to_app(self, config: PathConfig) -> None:
+        """Mount a path's MCP app into the running Starlette app's routes."""
+        if self._app is None:
+            return
+        path = config.path
+        self._app.routes.append(Mount(path, app=config.mcp.sse_app()))
+
+    def _remove_path_from_app(self, path: str) -> None:
+        """Remove a path's routes from the running Starlette app."""
+        if self._app is None:
+            return
+        self._app.routes = [
+            r for r in self._app.routes if not (hasattr(r, "path") and r.path == path)
+        ]
 
     def build_starlette_app(
         self,
@@ -91,10 +153,12 @@ class PathRouter:
         # Health endpoint
         routes.append(Route("/health", self._health_handler, methods=["GET"]))
 
-        return Starlette(
+        app = Starlette(
             routes=routes,
             middleware=middleware or [],
         )
+        self._app = app
+        return app
 
     @staticmethod
     async def _health_handler(request):
