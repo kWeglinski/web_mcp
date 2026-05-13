@@ -90,9 +90,7 @@ class PathRouter:
                 name=f"web-mcp-{path.lstrip('/')}",
                 host=SERVER_HOST,
                 port=SERVER_PORT,
-                transport_security=TransportSecuritySettings(
-                    enable_dns_rebinding_protection=False
-                ),
+                transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
                 token_verifier=token_verifier,
                 auth=auth,
             )
@@ -128,9 +126,7 @@ class PathRouter:
             name=f"web-mcp-{path.lstrip('/')}",
             host=SERVER_HOST,
             port=SERVER_PORT,
-            transport_security=TransportSecuritySettings(
-                enable_dns_rebinding_protection=False
-            ),
+            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
             token_verifier=token_verifier,
             auth=auth,
         )
