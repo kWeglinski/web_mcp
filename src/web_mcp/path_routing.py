@@ -11,6 +11,10 @@ from starlette.applications import Starlette
 from starlette.middleware import Middleware
 from starlette.routing import Mount, Route
 
+from web_mcp.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 class PathConfig:
     """Configuration for one MCP path."""
@@ -131,4 +135,7 @@ def get_tool_descriptions() -> dict[str, str]:
 
         return {name: info["description"] for name, info in TOOL_REGISTRY.items()}
     except Exception:
+        logger.warning(
+            "Failed to load tool descriptions — TOOL_REGISTRY unavailable", exc_info=True
+        )
         return {}

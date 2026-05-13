@@ -16,11 +16,14 @@ from web_mcp.admin.schemas import (
     ToolsListOutput,
 )
 from web_mcp.admin.storage import ConfigStorage
+from web_mcp.logging import get_logger
 from web_mcp.path_routing import (
     PathRouter,
     get_tool_descriptions,
     validate_path,
 )
+
+logger = get_logger(__name__)
 
 
 class AdminRouter:
@@ -167,6 +170,8 @@ class AdminRouter:
         """GET /admin/tools — List all available tools with descriptions."""
         try:
             descriptions = get_tool_descriptions()
+            if not descriptions:
+                logger.warning("No tool descriptions found — admin tools list will be empty")
             tools = []
             for name, desc in descriptions.items():
                 is_read_only = name not in ("create_chart_tool", "run_javascript")

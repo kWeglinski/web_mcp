@@ -140,11 +140,10 @@ async function handleLogout() {
 
 async function loadTools() {
   try {
-    allTools = await fetchJSON(API + '/admin/tools');
-    if (allTools) {
-      renderTools(allTools);
-      renderFormTools(allTools);
-    }
+    const data = await fetchJSON(API + '/admin/tools');
+    allTools = data ? data.tools : [];
+    renderTools(allTools);
+    renderFormTools(allTools);
   } catch(e) { showToast('Failed to load tools: ' + e.message, 'error'); }
 }
 
@@ -165,7 +164,7 @@ function renderFormTools(tools) {
 async function loadPaths() {
   try {
     const paths = await fetchJSON(API + '/admin/config/paths');
-    if (!paths) return;
+    if (!paths || typeof paths !== 'object') return;
     const keys = Object.keys(paths);
     if (!keys.length) {
       document.getElementById('pathsList').innerHTML = '<div class="empty">No paths configured. Click "+ Add Path" to create one.</div>';
@@ -208,7 +207,7 @@ async function editPath(path) {
     document.getElementById('modalOverlay').classList.remove('hidden');
     // Check tools
     document.querySelectorAll('#formTools input[type=checkbox]').forEach(cb => {
-      cb.checked = config.enabled_tools.includes(cb.value);
+      cb.checked = (config.enabled_tools || []).includes(cb.value);
     });
   } catch(e) { showToast('Failed to load path: ' + e.message, 'error'); }
 }
@@ -224,7 +223,7 @@ async function savePath(e) {
 
   if (!enabled_tools.length) { showToast('Select at least one tool', 'error'); return false; }
 
-  const body = { name, description, enabled_tools, requires_auth };
+  const body = { path, name, description, enabled_tools, requires_auth };
 
   try {
     if (editPath) {
