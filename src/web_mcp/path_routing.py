@@ -67,14 +67,33 @@ class PathRouter:
 
     def refresh_from_storage(self) -> None:
         """Reload all paths from ConfigStorage into _configs."""
+        from mcp.server.transport_security import TransportSecuritySettings
+
         from web_mcp.admin.storage import ConfigStorage
-        from web_mcp.server import register_tools_for_path
+        from web_mcp.server import (
+            SERVER_HOST,
+            SERVER_PORT,
+            create_auth_config,
+            register_tools_for_path,
+        )
 
         storage = ConfigStorage()
         for path, path_config in storage.get_paths().items():
             if path in self._configs:
                 continue
-            mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
+            requires_auth = path_config.get("requires_auth", True)
+            token_verifier = None
+            auth = None
+            if requires_auth:
+                token_verifier, auth = create_auth_config()
+            mcp = FastMCP(
+                name=f"web-mcp-{path.lstrip('/')}",
+                host=SERVER_HOST,
+                port=SERVER_PORT,
+                transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+                token_verifier=token_verifier,
+                auth=auth,
+            )
             register_tools_for_path(mcp, path_config.get("enabled_tools", []))
             self.add_path(
                 PathConfig(
@@ -83,15 +102,34 @@ class PathRouter:
                     path_config.get("name", path),
                     path_config.get("description", ""),
                     path_config.get("enabled_tools", []),
-                    path_config.get("requires_auth", True),
+                    requires_auth,
                 )
             )
 
     def register_path(self, path: str, config_dict: dict) -> None:
         """Register a single path at runtime and add its route to the app."""
-        from web_mcp.server import register_tools_for_path
+        from mcp.server.transport_security import TransportSecuritySettings
 
-        mcp = FastMCP(name=f"web-mcp-{path.lstrip('/')}")
+        from web_mcp.server import (
+            SERVER_HOST,
+            SERVER_PORT,
+            create_auth_config,
+            register_tools_for_path,
+        )
+
+        requires_auth = config_dict.get("requires_auth", True)
+        token_verifier = None
+        auth = None
+        if requires_auth:
+            token_verifier, auth = create_auth_config()
+        mcp = FastMCP(
+            name=f"web-mcp-{path.lstrip('/')}",
+            host=SERVER_HOST,
+            port=SERVER_PORT,
+            transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+            token_verifier=token_verifier,
+            auth=auth,
+        )
         register_tools_for_path(mcp, config_dict.get("enabled_tools", []))
         pc = PathConfig(
             path,
@@ -99,7 +137,7 @@ class PathRouter:
             config_dict.get("name", path),
             config_dict.get("description", ""),
             config_dict.get("enabled_tools", []),
-            config_dict.get("requires_auth", True),
+            requires_auth,
         )
         self.add_path(pc)
         self._mount_path_to_app(pc)
