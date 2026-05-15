@@ -6,10 +6,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-mock_langchain = ModuleType("langchain_huggingface")
-mock_langchain.HuggingFaceEmbeddings = MagicMock
-sys.modules["langchain_huggingface"] = mock_langchain
-
 mock_mem0 = ModuleType("mem0")
 mock_mem0.Memory = MagicMock
 sys.modules["mem0"] = mock_mem0
