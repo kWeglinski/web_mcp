@@ -172,12 +172,15 @@ class TestGetAllToolNames:
     """Tests for get_all_tool_names."""
 
     def test_get_all_tool_names(self):
-        """Test returns 9 tool names from TOOL_REGISTRY."""
+        """Test returns 14 tool names from TOOL_REGISTRY."""
         storage = ConfigStorage()
         tool_names = storage.get_all_tool_names()
 
-        assert len(tool_names) == 9
+        assert len(tool_names) == 14
         assert "get_page" in tool_names
         assert "search_web" in tool_names
         assert "brave_search" in tool_names
         assert "run_javascript" in tool_names
+        assert "add_memory" in tool_names
+        assert "search_memory" in tool_names
+        assert "get_user_memories" in tool_names

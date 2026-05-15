@@ -144,3 +144,62 @@ async def brave_search(
         return f"*Brave Search failed: {e.message}*"
     except Exception as e:
         return f"*Brave Search failed: {e}*"
+
+
+async def wikipedia_research(
+    query: str, max_sources: int = 5, search_results_limit: int = 10
+) -> str:
+    """Perform deep research on Wikipedia using a RAG pipeline. Returns an answer with citations."""
+    from web_mcp.research.citations import format_sources
+    from web_mcp.research.kiwix_pipeline import research_kiwix
+
+    try:
+        result = await research_kiwix(
+            query, max_sources=max_sources, search_results_limit=search_results_limit
+        )
+
+        if result.answer.startswith("Error:"):
+            return result.answer
+
+        # Format the output: Answer + Formatted Sources
+        output = f"{result.answer}\n\n**Sources:**\n\n{format_sources(result.sources)}"
+        return output
+    except Exception as e:
+        logger.error(f"[wikipedia_research] Failed: {e}")
+        return f"*Wikipedia research failed: {e}*"
+
+
+async def wikipedia_search(query: str) -> str:
+    """Search Kiwix for information. Returns top 5 results in markdown format."""
+    from web_mcp.kiwix_client import KiwixClient
+    from web_mcp.searxng import parse_searxng_to_markdown
+
+    client = KiwixClient()
+    results = await client.search(query)
+
+    if not results:
+        return "*No Kiwix search results found*"
+
+    # Standardize results to match SearXNG format for reuse of parse_searxng_to_markdown
+    standardized_results = []
+    for r in results:
+        # Kiwix might return different field names, we try to be robust
+        title = r.get("title") or r.get("name") or ""
+        url = r.get("url") or r.get("link") or ""
+        snippet = r.get("snippet") or r.get("content") or r.get("description") or ""
+
+        if title and url:
+            standardized_results.append(
+                {
+                    "title": title,
+                    "url": url,
+                    "snippet": snippet,
+                    "score": 1.0,
+                }
+            )
+
+    if not standardized_results:
+        return "*No meaningful Kiwix search results found*"
+
+    json_data = {"results": standardized_results}
+    return parse_searxng_to_markdown(json_data, query, max_results=5)

@@ -237,27 +237,33 @@ class TestGetAllToolNames:
     """Tests for get_all_tool_names function."""
 
     def test_get_all_tool_names(self):
-        """Test returns 9 tool names."""
+        """Test returns 14 tool names."""
         tool_names = get_all_tool_names()
 
-        assert len(tool_names) == 9
+        assert len(tool_names) == 14
         assert "get_page" in tool_names
         assert "search_web" in tool_names
         assert "run_javascript" in tool_names
+        assert "add_memory" in tool_names
+        assert "search_memory" in tool_names
+        assert "get_user_memories" in tool_names
 
 
 class TestGetToolDescriptions:
     """Tests for get_tool_descriptions function."""
 
     def test_get_tool_descriptions(self):
-        """Test returns dict of 9 tool names to descriptions."""
+        """Test returns dict of 14 tool names to descriptions."""
         descriptions = get_tool_descriptions()
 
-        assert len(descriptions) == 9
+        assert len(descriptions) == 14
         assert "get_page" in descriptions
         assert "search_web" in descriptions
         assert isinstance(descriptions["get_page"], str)
         assert len(descriptions["get_page"]) > 0
+        assert "add_memory" in descriptions
+        assert "search_memory" in descriptions
+        assert "get_user_memories" in descriptions
 
     def test_descriptions_are_nonempty(self):
         """Test all descriptions are non-empty strings."""

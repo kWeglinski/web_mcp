@@ -86,7 +86,7 @@ class TestListTools:
     """Tests for list_tools endpoint."""
 
     async def test_list_tools(self, admin_router):
-        """Test returns all 9 tools with correct metadata."""
+        """Test returns all 14 tools with correct metadata."""
         response = await admin_router.list_tools(_make_request("GET", "/admin/tools"))
 
         data = response.body
@@ -95,11 +95,14 @@ class TestListTools:
         parsed = json.loads(data)
         tools = parsed["tools"]
 
-        assert len(tools) == 9
+        assert len(tools) == 14
         tool_names = [t["name"] for t in tools]
         assert "get_page" in tool_names
         assert "search_web" in tool_names
         assert "run_javascript" in tool_names
+        assert "add_memory" in tool_names
+        assert "search_memory" in tool_names
+        assert "get_user_memories" in tool_names
 
         # Check metadata
         run_js = next(t for t in tools if t["name"] == "run_javascript")
@@ -109,6 +112,12 @@ class TestListTools:
         get_page = next(t for t in tools if t["name"] == "get_page")
         assert get_page["is_read_only"] is True
         assert get_page["destructive"] is False
+
+        add_mem = next(t for t in tools if t["name"] == "add_memory")
+        assert add_mem["is_read_only"] is True
+
+        search_mem = next(t for t in tools if t["name"] == "search_memory")
+        assert search_mem["is_read_only"] is True
 
 
 class TestHealth:
