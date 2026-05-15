@@ -12,6 +12,11 @@ def mock_mem0():
     import sys
     from types import ModuleType
 
+    # Save original modules to restore later
+    original_mem0 = sys.modules.get("web_mcp.mem0")
+    original_mem0_tools = sys.modules.get("web_mcp.mem0.tools")
+    original_mem0_root = sys.modules.get("mem0")
+
     # Create a mock module for web_mcp.mem0 with a tools submodule
     mock_mem0_pkg = ModuleType("web_mcp.mem0")
     mock_tools = ModuleType("web_mcp.mem0.tools")
@@ -41,9 +46,20 @@ def mock_mem0():
 
     yield mock_manager
 
-    # Clean up
-    sys.modules.pop("web_mcp.mem0", None)
-    sys.modules.pop("web_mcp.mem0.tools", None)
+    # Clean up - restore original modules
+    if original_mem0 is not None:
+        sys.modules["web_mcp.mem0"] = original_mem0
+    elif "web_mcp.mem0" in sys.modules:
+        del sys.modules["web_mcp.mem0"]
+
+    if original_mem0_tools is not None:
+        sys.modules["web_mcp.mem0.tools"] = original_mem0_tools
+    elif "web_mcp.mem0.tools" in sys.modules:
+        del sys.modules["web_mcp.mem0.tools"]
+
+    # Restore original mem0 root module if it was replaced
+    if original_mem0_root is not None:
+        sys.modules["mem0"] = original_mem0_root
 
 
 @pytest.fixture(scope="session")
