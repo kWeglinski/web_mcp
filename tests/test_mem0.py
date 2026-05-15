@@ -45,7 +45,10 @@ class TestMem0Manager:
             assert call_kwargs["llm"]["config"]["api_key"] == "local-secret"
             assert call_kwargs["embedder"]["provider"] == "openai"
             assert call_kwargs["embedder"]["config"]["model"] == "text-embedding-3-small"
-            assert call_kwargs["embedder"]["config"]["base_url"] == "http://host.docker.internal:1234/v1"
+            assert (
+                call_kwargs["embedder"]["config"]["base_url"]
+                == "http://host.docker.internal:1234/v1"
+            )
             assert call_kwargs["embedder"]["config"]["api_key"] == "local-secret"
             assert call_kwargs["vector_store"]["config"]["path"] == "/app/chroma_db"
             assert call_kwargs["vector_store"]["config"]["collection_name"] == "mcp_memories"

@@ -1,7 +1,8 @@
 """Client for interacting with a Kiwix server."""
 
-import httpx
 from xml.etree import ElementTree
+
+import httpx
 
 from web_mcp.config import get_config
 
@@ -60,11 +61,13 @@ class KiwixClient:
                     path = result_elem.findtext("url", "")
                     content = result_elem.findtext("content", "")
                     if title or path:
-                        results.append({
-                            "title": title,
-                            "url": path,
-                            "content": content,
-                        })
+                        results.append(
+                            {
+                                "title": title,
+                                "url": path,
+                                "content": content,
+                            }
+                        )
             except (ElementTree.ParseError, TypeError):
                 pass
 
