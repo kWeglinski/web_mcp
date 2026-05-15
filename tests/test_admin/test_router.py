@@ -86,7 +86,7 @@ class TestListTools:
     """Tests for list_tools endpoint."""
 
     async def test_list_tools(self, admin_router):
-        """Test returns all 14 tools with correct metadata."""
+        """Test returns all 17 tools with correct metadata."""
         response = await admin_router.list_tools(_make_request("GET", "/admin/tools"))
 
         data = response.body
@@ -95,7 +95,7 @@ class TestListTools:
         parsed = json.loads(data)
         tools = parsed["tools"]
 
-        assert len(tools) == 14
+        assert len(tools) == 17
         tool_names = [t["name"] for t in tools]
         assert "get_page" in tool_names
         assert "search_web" in tool_names
@@ -103,6 +103,9 @@ class TestListTools:
         assert "add_memory" in tool_names
         assert "search_memory" in tool_names
         assert "get_user_memories" in tool_names
+        assert "gather_knowledge" in tool_names
+        assert "search_knowledge" in tool_names
+        assert "manage_knowledge_collection" in tool_names
 
         # Check metadata
         run_js = next(t for t in tools if t["name"] == "run_javascript")

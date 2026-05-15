@@ -9,14 +9,14 @@ class TestRegisterAllTools:
     """Tests for register_all_tools function."""
 
     def test_register_all_tools(self, mock_mem0):
-        """Test verify all 14 tools registered on MCP instance."""
+        """Test verify all 17 tools registered on MCP instance."""
         mock_mcp = MagicMock()
 
         with patch("web_mcp.server._register_tool") as mock_register:
             register_all_tools(mock_mcp)
 
-            # Should be called 14 times for 14 tools
-            assert mock_register.call_count == 14
+            # Should be called 17 times for 17 tools
+            assert mock_register.call_count == 17
 
     def test_register_all_tools_calls_add_tool(self, mock_mem0):
         """Test that register_all_tools actually calls mcp.add_tool for each tool."""
@@ -24,8 +24,8 @@ class TestRegisterAllTools:
 
         register_all_tools(mock_mcp)
 
-        # add_tool should be called 14 times
-        assert mock_mcp.add_tool.call_count == 14
+        # add_tool should be called 17 times
+        assert mock_mcp.add_tool.call_count == 17
 
 
 class TestRegisterToolsForPath:
@@ -63,8 +63,8 @@ class TestToolRegistry:
     """Tests for TOOL_REGISTRY contents."""
 
     def test_tool_registry_has_14_tools(self):
-        """Test verify TOOL_REGISTRY has exactly 14 entries."""
-        assert len(TOOL_REGISTRY) == 14
+        """Test verify TOOL_REGISTRY has exactly 17 entries."""
+        assert len(TOOL_REGISTRY) == 17
 
     def test_tool_registry_has_expected_tools(self):
         """Test verify expected tool names are present."""
@@ -83,6 +83,9 @@ class TestToolRegistry:
             "add_memory",
             "search_memory",
             "get_user_memories",
+            "gather_knowledge",
+            "search_knowledge",
+            "manage_knowledge_collection",
         }
         assert set(TOOL_REGISTRY.keys()) == expected_tools
 

@@ -74,7 +74,10 @@ mcp = FastMCP(
     name="web-browsing",
     instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
     "Use `get_page` to browse websites and extract their main content, "
-    "`search_web` to search the web using SearXNG.",
+    "`search_web` to search the web using SearXNG. "
+    "Use `gather_knowledge` to gather and store facts about a topic, "
+    "`search_knowledge` to search stored facts, or "
+    "`manage_knowledge_collection` to manage the knowledge base.",
     host=SERVER_HOST,
     port=SERVER_PORT,
     lifespan=lifespan,
@@ -235,7 +238,156 @@ TOOL_REGISTRY: dict[str, dict] = {
         "is_read_only": True,
         "module": "mem0.tools",
     },
+    "gather_knowledge": {
+        "name": "gather_knowledge",
+        "description": "Gather grounded, source-anchored facts about a topic by searching the web, fetching content, extracting facts via LLM, deduplicating, and storing in mem0.",
+        "is_read_only": False,
+        "module": "server (inline)",
+    },
+    "search_knowledge": {
+        "name": "search_knowledge",
+        "description": "Search stored knowledge facts in mem0.",
+        "is_read_only": True,
+        "module": "server (inline)",
+    },
+    "manage_knowledge_collection": {
+        "name": "manage_knowledge_collection",
+        "description": "Manage the knowledge collection: view status, run cleanup, or clear all knowledge.",
+        "is_read_only": False,
+        "module": "server (inline)",
+    },
 }
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gathering tools (inline definitions)
+# ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def gather_knowledge(
+    topic: str,
+    max_search_results: int = 5,
+) -> str:
+    """Gather grounded, source-anchored facts about a topic by searching the web, fetching content, extracting facts via LLM, deduplicating, and storing in mem0.
+
+    Args:
+        topic: The topic to gather knowledge about. Be specific: 'Python asyncio best practices' not just 'Python'.
+        max_search_results: Maximum number of search results to fetch and process (1-10).
+
+    Returns a summary of gathered facts with source citations, categories, and quality metrics.
+    """
+    from web_mcp.knowledge import gather_knowledge as knowledge_gather
+    from web_mcp.knowledge.validation import validate_topic_width
+
+    # Validate topic
+    validation = validate_topic_width(topic)
+    if not validation["valid"]:
+        return f"Warning: Topic validation issues: {'; '.join(validation['issues'])}\n\n"
+
+    result = await knowledge_gather(topic, max_search_results=max_search_results)
+    return result.summary()
+
+
+@mcp.tool()
+async def search_knowledge(
+    query: str,
+    categories: list[str] | None = None,
+    limit: int = 10,
+) -> str:
+    """Search stored knowledge facts in mem0.
+
+    Args:
+        query: Search query to find stored knowledge facts.
+        categories: Optional filter by category names (e.g., ['api', 'security']).
+        limit: Maximum number of results to return.
+
+    Returns matching facts with source citations and confidence scores.
+    """
+    from web_mcp.mem0 import mem0_manager
+
+    memory = mem0_manager.get_memory()
+    results = memory.search(query=query, limit=limit)
+
+    if not results:
+        return f"No knowledge found for: '{query}'"
+
+    lines = [f"Knowledge search results for: '{query}'\n"]
+    for i, r in enumerate(results, 1):
+        memory_text = r.get("memory", r.get("text", ""))
+        metadata = r.get("metadata", {})
+        confidence = metadata.get("confidence", "N/A")
+        source = metadata.get("source_url", "N/A")
+        category = metadata.get("category", "N/A")
+        lines.append(f"{i}. {memory_text}")
+        lines.append(f"   Confidence: {confidence} | Source: {source} | Category: {category}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+@mcp.tool()
+async def manage_knowledge_collection(
+    action: str,
+    topic: str | None = None,
+) -> str:
+    """Manage the knowledge collection: view status, run cleanup, or clear all knowledge.
+
+    Actions:
+    - status: Show collection statistics (total facts, categories, storage size)
+    - cleanup: Manually trigger TTL-based cleanup of stale entries
+    - clear: Delete all stored knowledge facts (irreversible)
+
+    Args:
+        action: Action: 'status' (show stats), 'cleanup' (run cleanup now), 'clear' (delete all knowledge).
+        topic: Optional topic filter for status/cleanup actions.
+    """
+    from web_mcp.mem0 import mem0_manager
+
+    memory = mem0_manager.get_memory()
+
+    if action == "status":
+        memories = memory.list()
+        total = len(memories)
+        categories = {}
+        sources = set()
+        for mem in memories:
+            metadata = getattr(mem, "metadata", {}) or {}
+            cat = metadata.get("category", "uncategorized")
+            categories[cat] = categories.get(cat, 0) + 1
+            src = metadata.get("source_url", "")
+            if src:
+                sources.add(src)
+
+        lines = [
+            "Knowledge Collection Status:",
+            f"  Total facts: {total}",
+            f"  Unique sources: {len(sources)}",
+            f"  Categories: {dict(sorted(categories.items(), key=lambda x: -x[1]))}",
+        ]
+        return "\n".join(lines)
+
+    elif action == "cleanup":
+        from web_mcp.config import get_config
+        from web_mcp.knowledge.cleanup import KnowledgeCleanupTask
+
+        config = get_config()
+        task = KnowledgeCleanupTask(memory, ttl_days=config.knowledge_ttl_days)
+        result = await task.run_once()
+        return f"Cleanup result: {result}"
+
+    elif action == "clear":
+        memories = memory.list()
+        deleted = 0
+        for mem in memories:
+            metadata = getattr(mem, "metadata", {}) or {}
+            if metadata.get("type") == "knowledge_fact":
+                memory.delete(memory_id=mem.id)
+                deleted += 1
+        return f"Cleared {deleted} knowledge facts from collection."
+
+    else:
+        return f"Unknown action: '{action}'. Use 'status', 'cleanup', or 'clear'."
 
 
 def _register_tool(mcp, fn, annotations=None, structured_output=False) -> None:
@@ -284,6 +436,16 @@ def register_all_tools(mcp: FastMCP) -> None:
         get_user_memories_tool,
         ToolAnnotations(readOnlyHint=True, openWorldHint=True),
         OUTPUT_SCHEMAS,
+    )
+    _register_tool(mcp, gather_knowledge, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS)
+    _register_tool(
+        mcp,
+        search_knowledge,
+        ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+        OUTPUT_SCHEMAS,
+    )
+    _register_tool(
+        mcp, manage_knowledge_collection, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS
     )
 
 
@@ -337,6 +499,21 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
             ToolAnnotations(readOnlyHint=True, openWorldHint=True),
             OUTPUT_SCHEMAS,
         ),
+        "gather_knowledge": (
+            gather_knowledge,
+            ToolAnnotations(openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "search_knowledge": (
+            search_knowledge,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "manage_knowledge_collection": (
+            manage_knowledge_collection,
+            ToolAnnotations(openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
     }
 
     for name in tool_names:
@@ -354,7 +531,8 @@ def create_default_mcp() -> FastMCP:
     return FastMCP(
         name="web-browsing",
         instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
-        "Use `get_page` to browse websites and extract their main content, `search_web` to search the web using SearXNG, `wikipedia_search` to search offline Wikipedia, or `wikipedia_research` for deep RAG research on Wikipedia.",
+        "Use `get_page` to browse websites and extract their main content, `search_web` to search the web using SearXNG, `wikipedia_search` to search offline Wikipedia, or `wikipedia_research` for deep RAG research on Wikipedia. "
+        "Use `gather_knowledge` to gather and store facts about a topic, `search_knowledge` to search stored facts, or `manage_knowledge_collection` to manage the knowledge base.",
         host=SERVER_HOST,
         port=SERVER_PORT,
         lifespan=lifespan,
@@ -408,7 +586,7 @@ def main():
         build_admin_mode()
         return
 
-    tools = "get_page, search_web, brave_search, wikipedia_search, wikipedia_research, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics, add_memory, search_memory, get_user_memories"
+    tools = "get_page, search_web, brave_search, wikipedia_search, wikipedia_research, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics, add_memory, search_memory, get_user_memories, gather_knowledge, search_knowledge, manage_knowledge_collection"
 
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")

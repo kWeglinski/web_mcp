@@ -47,6 +47,15 @@ ENV_ADMIN_API_KEY = "WEB_MCP_ADMIN_API_KEY"
 ENV_ADMIN_PATH = "WEB_MCP_ADMIN_PATH"
 ENV_ADMIN_CONFIG_FILE = "WEB_MCP_ADMIN_CONFIG_FILE"
 
+# Knowledge gatherer settings
+ENV_KNOWLEDGE_EXTRACT_MODEL = "WEB_MCP_KNOWLEDGE_EXTRACT_MODEL"
+ENV_KNOWLEDGE_MAX_FACTS = "WEB_MCP_KNOWLEDGE_MAX_FACTS"
+ENV_KNOWLEDGE_MIN_CONFIDENCE = "WEB_MCP_KNOWLEDGE_MIN_CONFIDENCE"
+ENV_KNOWLEDGE_TTL_DAYS = "WEB_MCP_KNOWLEDGE_TTL_DAYS"
+ENV_KNOWLEDGE_MAX_COLLECTION_SIZE = "WEB_MCP_KNOWLEDGE_MAX_COLLECTION_SIZE"
+ENV_KNOWLEDGE_CLEANUP_INTERVAL = "WEB_MCP_KNOWLEDGE_CLEANUP_INTERVAL"
+ENV_KNOWLEDGE_SEMANTIC_THRESHOLD = "WEB_MCP_KNOWLEDGE_SEMANTIC_THRESHOLD"
+
 
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
@@ -228,6 +237,27 @@ class Config:
         self.admin_path: str = os.environ.get(ENV_ADMIN_PATH, "/admin")
         self.admin_config_file: str = os.environ.get(
             ENV_ADMIN_CONFIG_FILE, "/data/mcp-admin-config.json"
+        )
+
+        # Knowledge gatherer settings
+        self.knowledge_extract_model: str = os.environ.get(ENV_KNOWLEDGE_EXTRACT_MODEL, "gpt-4o")
+        self.knowledge_max_facts: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_MAX_FACTS, "20"), 1, 1000
+        )
+        self.knowledge_min_confidence: float = self._validate_float(
+            os.environ.get(ENV_KNOWLEDGE_MIN_CONFIDENCE, "0.7"), 0.0, 1.0
+        )
+        self.knowledge_ttl_days: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_TTL_DAYS, "90"), 1, 3650
+        )
+        self.knowledge_max_collection_size: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_MAX_COLLECTION_SIZE, "500"), 1, 100000
+        )
+        self.knowledge_cleanup_interval: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_CLEANUP_INTERVAL, "3600"), 60, 86400
+        )
+        self.knowledge_semantic_threshold: float = self._validate_float(
+            os.environ.get(ENV_KNOWLEDGE_SEMANTIC_THRESHOLD, "0.85"), 0.0, 1.0
         )
 
     @property
