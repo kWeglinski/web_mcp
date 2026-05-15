@@ -1,5 +1,7 @@
 """Client for interacting with a Kiwix server."""
 
+from xml.etree import ElementTree
+
 import httpx
 
 from web_mcp.config import get_config
@@ -39,18 +41,37 @@ class KiwixClient:
         async with httpx.AsyncClient() as client:
             response = await client.get(url, params=params)
             response.raise_for_status()
-            # Assuming the response is a JSON list or contains a list of results
+
+            # Try JSON first (some Kiwix proxies may return JSON)
             try:
                 data = response.json()
                 if isinstance(data, list):
                     return data
                 elif isinstance(data, dict) and "results" in data:
                     return data["results"]
-                else:
-                    return []
-            except ValueError:
-                # If not JSON, return empty list or handle as error
-                return []
+            except (ValueError, TypeError):
+                pass
+
+            # Kiwix search returns XML by default: <results><result><title>...</title><url>...</url><content>...</content></result></results>
+            results = []
+            try:
+                root = ElementTree.fromstring(response.text)
+                for result_elem in root.findall("result"):
+                    title = result_elem.findtext("title", "")
+                    path = result_elem.findtext("url", "")
+                    content = result_elem.findtext("content", "")
+                    if title or path:
+                        results.append(
+                            {
+                                "title": title,
+                                "url": path,
+                                "content": content,
+                            }
+                        )
+            except (ElementTree.ParseError, TypeError):
+                pass
+
+            return results
 
     async def get_content(self, path: str) -> str:
         """

@@ -4,11 +4,7 @@ import sys
 from types import ModuleType
 from unittest.mock import MagicMock, patch
 
-# Mock langchain_huggingface and mem0 before importing web_mcp.mem0
-mock_langchain = ModuleType("langchain_huggingface")
-mock_langchain.HuggingFaceEmbeddings = MagicMock
-sys.modules["langchain_huggingface"] = mock_langchain
-
+# Mock mem0 before importing web_mcp.mem0
 mock_mem0 = ModuleType("mem0")
 mock_mem0.Memory = MagicMock
 sys.modules["mem0"] = mock_mem0
@@ -33,8 +29,7 @@ class TestMem0Manager:
             mock_memory_class.from_config.assert_called_once()
 
     @patch("web_mcp.mem0.get_config")
-    @patch("web_mcp.mem0.HuggingFaceEmbeddings")
-    def test_get_memory_uses_env_vars(self, mock_hf, mock_config):
+    def test_get_memory_uses_env_vars(self, mock_config):
         mock_config.return_value = MagicMock()
 
         with patch("web_mcp.mem0.Memory") as mock_memory_class:
@@ -44,13 +39,17 @@ class TestMem0Manager:
             manager = Mem0Manager()
             manager.get_memory()
 
-            # Check HuggingFaceEmbeddings was called with correct model
-            mock_hf.assert_called_once_with(model_name="BAAI/bge-small-en-v1.5")
-
             call_kwargs = mock_memory_class.from_config.call_args[0][0]
             assert call_kwargs["llm"]["config"]["model"] == "llama3:8b"
             assert call_kwargs["llm"]["config"]["base_url"] == "http://host.docker.internal:1234/v1"
             assert call_kwargs["llm"]["config"]["api_key"] == "local-secret"
+            assert call_kwargs["embedder"]["provider"] == "openai"
+            assert call_kwargs["embedder"]["config"]["model"] == "text-embedding-3-small"
+            assert (
+                call_kwargs["embedder"]["config"]["base_url"]
+                == "http://host.docker.internal:1234/v1"
+            )
+            assert call_kwargs["embedder"]["config"]["api_key"] == "local-secret"
             assert call_kwargs["vector_store"]["config"]["path"] == "/app/chroma_db"
             assert call_kwargs["vector_store"]["config"]["collection_name"] == "mcp_memories"
 
