@@ -1,0 +1,6 @@
+mcp
+mem0ai
+chromadb
+langchain-huggingface
+sentence-transformers
+openai

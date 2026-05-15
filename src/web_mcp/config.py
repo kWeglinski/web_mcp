@@ -22,10 +22,11 @@ ENV_PUBLIC_URL = "WEB_MCP_PUBLIC_URL"
 ENV_AUTH_TOKEN = "WEB_MCP_AUTH_TOKEN"
 ENV_CONTENT_TTL = "WEB_MCP_CONTENT_TTL"
 ENV_CONTENT_STORAGE_PATH = "WEB_MCP_CONTENT_STORAGE_PATH"
-# PDF settings
 ENV_PDF_CHARS_PER_PAGE = "WEB_MCP_PDF_CHARS_PER_PAGE"
+# Kiwix configuration
+ENV_KIWIX_URL = "WEB_MCP_KIWIX_URL"
+ENV_KIWIX_WIKIPEDIA_ZIM = "WEB_MCP_KIWIX_WIKIPEDIA_ZIM"
 
-# JavaScript execution settings
 ENV_JS_FETCH_MAX_RESPONSE_SIZE = "WEB_MCP_JS_FETCH_MAX_RESPONSE_SIZE"
 ENV_JS_FETCH_MAX_REQUESTS = "WEB_MCP_JS_FETCH_MAX_REQUESTS"
 ENV_JS_FETCH_MAX_TOTAL_BYTES = "WEB_MCP_JS_FETCH_MAX_TOTAL_BYTES"
@@ -212,6 +213,10 @@ class Config:
         self.referer: str = os.environ.get(ENV_REFERER, "")
 
         self.proxy_url: str | None = os.environ.get(ENV_PROXY_URL, None)
+
+        # Kiwix configuration
+        self.kiwix_url: str | None = os.environ.get(ENV_KIWIX_URL, None)
+        self.kiwix_wikipedia_zim: str = os.environ.get(ENV_KIWIX_WIKIPEDIA_ZIM, "wikipedia_en")
 
         # Admin panel settings
         self.admin_enabled: bool = os.environ.get(ENV_ADMIN_ENABLED, "false").lower() in (

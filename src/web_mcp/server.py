@@ -180,6 +180,18 @@ TOOL_REGISTRY: dict[str, dict] = {
         "is_read_only": True,
         "module": "tools.search",
     },
+    "wikipedia_search": {
+        "name": "wikipedia_search",
+        "description": "Search Kiwix for information (offline Wikipedia/etc.)",
+        "is_read_only": True,
+        "module": "tools.search",
+    },
+    "wikipedia_research": {
+        "name": "wikipedia_research",
+        "description": "Perform deep RAG research on Wikipedia for comprehensive answers with citations.",
+        "is_read_only": True,
+        "module": "tools.search",
+    },
     "health": {
         "name": "health",
         "description": "Get server health metrics",
@@ -205,6 +217,24 @@ TOOL_REGISTRY: dict[str, dict] = {
         "destructive": True,
         "module": "tools.advanced",
     },
+    "add_memory": {
+        "name": "add_memory",
+        "description": "Extracts and stores facts from the provided content for a specific user.",
+        "is_read_only": False,
+        "module": "mem0.tools",
+    },
+    "search_memory": {
+        "name": "search_memory",
+        "description": "Performs semantic retrieval of relevant memory snippets for a specific user.",
+        "is_read_only": True,
+        "module": "mem0.tools",
+    },
+    "get_user_memories": {
+        "name": "get_user_memories",
+        "description": "Provides the full history of stored facts/memories for a specific user.",
+        "is_read_only": True,
+        "module": "mem0.tools",
+    },
 }
 
 
@@ -215,9 +245,16 @@ def _register_tool(mcp, fn, annotations=None, structured_output=False) -> None:
 
 def register_all_tools(mcp: FastMCP) -> None:
     """Register all tools on an MCP instance."""
+    from web_mcp.mem0.tools import add_memory_tool, get_user_memories_tool, search_memory_tool
     from web_mcp.tools.advanced import create_chart_tool, run_javascript
     from web_mcp.tools.fetching import get_page, render_html
-    from web_mcp.tools.search import brave_search, search_metrics, search_web
+    from web_mcp.tools.search import (
+        brave_search,
+        search_metrics,
+        search_web,
+        wikipedia_research,
+        wikipedia_search,
+    )
     from web_mcp.tools.utils import current_datetime, health
 
     ro = ToolAnnotations(readOnlyHint=True)
@@ -228,15 +265,31 @@ def register_all_tools(mcp: FastMCP) -> None:
     _register_tool(mcp, render_html, ro, OUTPUT_SCHEMAS)
     _register_tool(mcp, search_web, ro_ow, OUTPUT_SCHEMAS)
     _register_tool(mcp, brave_search, ro_ow, OUTPUT_SCHEMAS)
-    _register_tool(mcp, search_metrics, ro, None)
+    _register_tool(mcp, wikipedia_search, ro_ow, OUTPUT_SCHEMAS)
+    _register_tool(mcp, wikipedia_research, ro_ow, OUTPUT_SCHEMAS)
+    _register_tool(mcp, search_metrics, ro, False)
     _register_tool(mcp, health, ro, OUTPUT_SCHEMAS)
     _register_tool(mcp, current_datetime, ro, OUTPUT_SCHEMAS)
     _register_tool(mcp, create_chart_tool, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS)
     _register_tool(mcp, run_javascript, ro_destructive, OUTPUT_SCHEMAS)
+    _register_tool(mcp, add_memory_tool, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS)
+    _register_tool(
+        mcp,
+        search_memory_tool,
+        ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+        OUTPUT_SCHEMAS,
+    )
+    _register_tool(
+        mcp,
+        get_user_memories_tool,
+        ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+        OUTPUT_SCHEMAS,
+    )
 
 
 def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
     """Register only the specified tools on an MCP instance."""
+    from web_mcp.mem0.tools import add_memory_tool, get_user_memories_tool, search_memory_tool
     from web_mcp.tools import advanced, fetching, search, utils
 
     all_tools: dict[str, tuple] = {
@@ -251,8 +304,8 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
             ToolAnnotations(readOnlyHint=True, openWorldHint=True),
             OUTPUT_SCHEMAS,
         ),
-        "brave_search": (
-            search.brave_search,
+        "wikipedia_search": (
+            search.wikipedia_search,
             ToolAnnotations(readOnlyHint=True, openWorldHint=True),
             OUTPUT_SCHEMAS,
         ),
@@ -273,6 +326,17 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
             ToolAnnotations(destructiveHint=True, openWorldHint=True),
             OUTPUT_SCHEMAS,
         ),
+        "add_memory": (add_memory_tool, ToolAnnotations(openWorldHint=True), OUTPUT_SCHEMAS),
+        "search_memory": (
+            search_memory_tool,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
+        "get_user_memories": (
+            get_user_memories_tool,
+            ToolAnnotations(readOnlyHint=True, openWorldHint=True),
+            OUTPUT_SCHEMAS,
+        ),
     }
 
     for name in tool_names:
@@ -290,8 +354,7 @@ def create_default_mcp() -> FastMCP:
     return FastMCP(
         name="web-browsing",
         instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
-        "Use `get_page` to browse websites and extract their main content, "
-        "`search_web` to search the web using SearXNG.",
+        "Use `get_page` to browse websites and extract their main content, `search_web` to search the web using SearXNG, `wikipedia_search` to search offline Wikipedia, or `wikipedia_research` for deep RAG research on Wikipedia.",
         host=SERVER_HOST,
         port=SERVER_PORT,
         lifespan=lifespan,
@@ -345,7 +408,7 @@ def main():
         build_admin_mode()
         return
 
-    tools = "get_page, search_web, brave_search, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics"
+    tools = "get_page, search_web, brave_search, wikipedia_search, wikipedia_research, create_chart_tool, render_html, current_datetime, health, run_javascript, search_metrics, add_memory, search_memory, get_user_memories"
 
     if "--http" in sys.argv or "--streamable-http" in sys.argv:
         logger.info(f"Starting MCP server on http://{SERVER_HOST}:{SERVER_PORT}")

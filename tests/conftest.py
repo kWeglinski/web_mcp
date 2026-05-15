@@ -6,6 +6,46 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
+@pytest.fixture
+def mock_mem0():
+    """Mock the mem0 module so tests don't need the mem0 package installed."""
+    import sys
+    from types import ModuleType
+
+    # Create a mock module for web_mcp.mem0 with a tools submodule
+    mock_mem0_pkg = ModuleType("web_mcp.mem0")
+    mock_tools = ModuleType("web_mcp.mem0.tools")
+
+    mock_memory = MagicMock()
+    mock_memory.add = MagicMock(return_value=None)
+    mock_memory.search = MagicMock(return_value=[])
+    mock_memory.get_all = MagicMock(return_value=[])
+
+    mock_manager = MagicMock()
+    mock_manager.get_memory = MagicMock(return_value=mock_memory)
+
+    # Set up the tools module with mock tool functions
+    mock_add_memory_tool = MagicMock()
+    mock_search_memory_tool = MagicMock()
+    mock_get_user_memories_tool = MagicMock()
+    mock_tools.add_memory_tool = mock_add_memory_tool
+    mock_tools.search_memory_tool = mock_search_memory_tool
+    mock_tools.get_user_memories_tool = mock_get_user_memories_tool
+
+    mock_mem0_pkg.mem0_manager = mock_manager
+    mock_mem0_pkg.tools = mock_tools
+
+    # Install in sys.modules
+    sys.modules["web_mcp.mem0"] = mock_mem0_pkg
+    sys.modules["web_mcp.mem0.tools"] = mock_tools
+
+    yield mock_manager
+
+    # Clean up
+    sys.modules.pop("web_mcp.mem0", None)
+    sys.modules.pop("web_mcp.mem0.tools", None)
+
+
 @pytest.fixture(scope="session")
 def event_loop():
     """Create an event loop for the test session."""
