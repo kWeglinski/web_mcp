@@ -1,11 +1,23 @@
+from __future__ import annotations
+
+from typing import Any
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from mem0 import Memory
 
 from web_mcp.config import get_config
 
+_DEFAULT_USER_ID = "knowledge"
+
 
 class Mem0Manager:
-    """Manages the lifecycle and configuration of the Mem0 memory system."""
+    """Manages the lifecycle and configuration of the Mem0 memory system.
+
+    Provides wrapper methods around mem0.Memory to handle common patterns
+    such as adding memories with metadata (which requires a user_id on
+    the underlying mem0 client) and listing memories (which mem0 exposes
+    via get_all with filters).
+    """
 
     def __init__(self):
         self._memory: Memory | None = None
@@ -54,6 +66,101 @@ class Mem0Manager:
 
         self._memory = Memory.from_config(mem0_config)
         return self._memory
+
+    def add_with_metadata(self, message: str, metadata: dict[str, Any]) -> dict[str, Any]:
+        """Add a memory with metadata to the knowledge store.
+
+        This is the preferred method for the knowledge pipeline. It wraps
+        mem0.Memory.add() which requires one of user_id/agent_id/run_id,
+        using a default 'knowledge' user_id for system-generated facts.
+
+        Args:
+            message: The memory/fact text to store.
+            metadata: A dict of metadata to associate with the memory
+                      (e.g. source_url, confidence, category).
+
+        Returns:
+            The raw result dict from mem0.Memory.add(), typically
+            {"results": [{"id": "...", "memory": "...", "event": "ADD"}]}.
+        """
+        memory = self.get_memory()
+        return memory.add(
+            messages=message,
+            user_id=_DEFAULT_USER_ID,
+            metadata=metadata,
+        )
+
+    def add(
+        self,
+        messages: str | list[dict[str, str]],
+        *,
+        user_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Add a memory, delegating to the underlying mem0.Memory.add().
+
+        Accepts both 'messages' and 'message' as keyword arguments for
+        compatibility with existing callers that use the singular form.
+
+        Args:
+            messages: The message content or list of message dicts.
+            user_id: Required by mem0. Defaults to 'knowledge' if not given.
+            metadata: Optional metadata dict to store with the memory.
+            **kwargs: Additional keyword args passed through to mem0.Memory.add().
+
+        Returns:
+            The result dict from mem0.Memory.add().
+        """
+        memory = self.get_memory()
+
+        effective_user_id = user_id or _DEFAULT_USER_ID
+
+        # Alias 'message' -> 'messages' for caller compatibility
+        if "message" in kwargs and "messages" not in kwargs:
+            kwargs["messages"] = kwargs.pop("message")
+
+        return memory.add(
+            messages=messages,
+            user_id=effective_user_id,
+            metadata=metadata,
+            **kwargs,
+        )
+
+    def list(
+        self,
+        user_id: str | None = None,
+        top_k: int = 100,
+    ) -> list[dict[str, Any]]:
+        """List all memories, returning just the results list.
+
+        mem0.Memory does not have a 'list' method; this wraps get_all()
+        with a default user_id filter and returns only the 'results' list
+        (not the full {"results": [...]} dict).
+
+        Args:
+            user_id: Entity ID to filter by. Defaults to 'knowledge'.
+            top_k: Maximum number of memories to return.
+
+        Returns:
+            A list of memory dicts (each with 'id', 'memory', etc.).
+        """
+        memory = self.get_memory()
+        effective_user_id = user_id or _DEFAULT_USER_ID
+        result = memory.get_all(
+            filters={"user_id": effective_user_id},
+            top_k=top_k,
+        )
+        return result.get("results", [])
+
+    def delete(self, memory_id: str) -> None:
+        """Delete a memory by ID.
+
+        Args:
+            memory_id: The ID of the memory to delete.
+        """
+        memory = self.get_memory()
+        memory.delete(memory_id)
 
 
 # Singleton instance for the module
