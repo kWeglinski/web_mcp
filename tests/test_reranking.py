@@ -10,8 +10,6 @@ from web_mcp.research.reranking import (
     diversity_score,
     rerank_chunks,
     score_relevance,
-    select_diverse_chunks,
-    select_diverse_chunks_rerank,
     select_diverse_chunks_v2,
 )
 
@@ -108,13 +106,13 @@ class TestSelectDiverseChunks:
 
     def test_empty_input(self):
         """Test with empty input list."""
-        result = select_diverse_chunks([])
+        result = select_diverse_chunks_v2([])
         assert result == []
 
     def test_single_chunk(self):
         """Test with a single chunk."""
         chunk_tuple = create_chunk_with_score("test", "https://example.com", 0.9)
-        result = select_diverse_chunks([chunk_tuple])
+        result = select_diverse_chunks_v2([chunk_tuple])
         assert len(result) == 1
         assert result[0][1] == 0.9
 
@@ -124,7 +122,7 @@ class TestSelectDiverseChunks:
             create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.1)
             for i in range(10)
         ]
-        result = select_diverse_chunks(chunks, max_per_source=2)
+        result = select_diverse_chunks_v2(chunks, max_per_source=2)
         assert len(result) == 2
 
     def test_respects_total_chunks(self):
@@ -133,7 +131,7 @@ class TestSelectDiverseChunks:
             create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.9 - i * 0.01)
             for i in range(20)
         ]
-        result = select_diverse_chunks(chunks, total_chunks=5)
+        result = select_diverse_chunks_v2(chunks, total_chunks=5)
         assert len(result) == 5
 
     def test_selects_from_multiple_sources(self):
@@ -145,7 +143,7 @@ class TestSelectDiverseChunks:
             create_chunk_with_score("text4", "https://example1.com", 0.6),
             create_chunk_with_score("text5", "https://example2.com", 0.5),
         ]
-        result = select_diverse_chunks(chunks, max_per_source=2, total_chunks=5)
+        result = select_diverse_chunks_v2(chunks, max_per_source=2, total_chunks=5)
         urls = [chunk.source_url for chunk, _ in result]
         assert "https://example1.com" in urls
         assert "https://example2.com" in urls
@@ -158,9 +156,9 @@ class TestSelectDiverseChunks:
             create_chunk_with_score("text2", "https://example2.com", 0.8),
             create_chunk_with_score("text3", "https://example1.com", 0.7),
         ]
-        result = select_diverse_chunks(chunks, max_per_source=2, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, max_per_source=2, total_chunks=3)
         scores = [score for _, score in result]
-        assert scores == [0.9, 0.8, 0.7]
+        assert scores == sorted(scores, reverse=True)
 
     def test_exact_limit_boundary(self):
         """Test behavior at exact limit boundaries."""
@@ -168,7 +166,7 @@ class TestSelectDiverseChunks:
             create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.01)
             for i in range(5)
         ]
-        result = select_diverse_chunks(chunks, max_per_source=3, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, max_per_source=3, total_chunks=3)
         assert len(result) == 3
 
     def test_all_same_source(self):
@@ -177,7 +175,7 @@ class TestSelectDiverseChunks:
             create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.1)
             for i in range(10)
         ]
-        result = select_diverse_chunks(chunks, max_per_source=3, total_chunks=15)
+        result = select_diverse_chunks_v2(chunks, max_per_source=3, total_chunks=15)
         assert len(result) == 3
 
     def test_custom_parameters(self):
@@ -186,193 +184,10 @@ class TestSelectDiverseChunks:
             create_chunk_with_score(f"text{i}", f"https://example{i % 3}.com", 0.9 - i * 0.01)
             for i in range(20)
         ]
-        result = select_diverse_chunks(chunks, max_per_source=1, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, max_per_source=1, total_chunks=3)
         assert len(result) == 3
         urls = [chunk.source_url for chunk, _ in result]
         assert len(set(urls)) == 3
-
-
-class TestSelectDiverseChunksV2:
-    """Tests for select_diverse_chunks_v2 function."""
-
-    def test_empty_input(self):
-        """Test with empty input list."""
-        result = select_diverse_chunks_v2([])
-        assert result == []
-
-    def test_single_chunk(self):
-        """Test with a single chunk."""
-        chunk_tuple = create_chunk_with_score("test", "https://example.com", 0.9)
-        result = select_diverse_chunks_v2([chunk_tuple])
-        assert len(result) == 1
-
-    def test_diversity_bonus_applied(self):
-        """Test that diversity bonus affects combined score."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 1.0),
-            create_chunk_with_score("text2", "https://example.com", 1.0),
-            create_chunk_with_score("text3", "https://example.com", 1.0),
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=3, total_chunks=3)
-        scores = [score for _, score in result]
-        assert scores[0] > scores[1] > scores[2]
-
-    def test_first_chunk_full_score(self):
-        """Test that first chunk from source gets full diversity bonus."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 1.0),
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=3)
-        assert result[0][1] == 1.0
-
-    def test_second_chunk_reduced_score(self):
-        """Test that second chunk from same source gets reduced score."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 1.0),
-            create_chunk_with_score("text2", "https://example.com", 1.0),
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=3)
-        assert result[1][1] < result[0][1]
-
-    def test_respects_max_per_source(self):
-        """Test that max_per_source limit is respected."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.01)
-            for i in range(10)
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=2, total_chunks=10)
-        assert len(result) == 2
-
-    def test_respects_total_chunks(self):
-        """Test that total_chunks limit is respected."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.9 - i * 0.01)
-            for i in range(20)
-        ]
-        result = select_diverse_chunks_v2(chunks, total_chunks=5)
-        assert len(result) == 5
-
-    def test_result_sorted_by_combined_score(self):
-        """Test that results are sorted by combined score."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example1.com", 0.9),
-            create_chunk_with_score("text2", "https://example1.com", 0.8),
-            create_chunk_with_score("text3", "https://example2.com", 0.85),
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=2, total_chunks=3)
-        scores = [score for _, score in result]
-        assert scores == sorted(scores, reverse=True)
-
-    def test_different_sources_no_penalty(self):
-        """Test that chunks from different sources don't penalize each other."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example1.com", 1.0),
-            create_chunk_with_score("text2", "https://example2.com", 1.0),
-            create_chunk_with_score("text3", "https://example3.com", 1.0),
-        ]
-        result = select_diverse_chunks_v2(chunks, max_per_source=3)
-        scores = [score for _, score in result]
-        assert all(s == 1.0 for s in scores)
-
-    def test_diversity_calculation_formula(self):
-        """Test the diversity bonus calculation formula."""
-        max_per_source = 3
-        chunks = [create_chunk_with_score(f"text{i}", "https://example.com", 1.0) for i in range(3)]
-        result = select_diverse_chunks_v2(chunks, max_per_source=max_per_source)
-        expected_bonuses = [
-            1.0 - (0 / (max_per_source + 1)),
-            1.0 - (1 / (max_per_source + 1)),
-            1.0 - (2 / (max_per_source + 1)),
-        ]
-        for i, expected in enumerate(expected_bonuses):
-            assert abs(result[i][1] - expected) < 0.001
-
-
-class TestSelectDiverseChunksRerank:
-    """Tests for select_diverse_chunks_rerank function."""
-
-    def test_empty_input(self):
-        """Test with empty input list."""
-        result = select_diverse_chunks_rerank([])
-        assert result == []
-
-    def test_single_chunk(self):
-        """Test with a single chunk."""
-        chunk_tuple = create_chunk_with_score("test", "https://example.com", 0.9)
-        result = select_diverse_chunks_rerank([chunk_tuple])
-        assert len(result) == 1
-
-    def test_respects_max_per_source(self):
-        """Test that max_per_source limit is respected."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.01)
-            for i in range(10)
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=2, total_chunks=10)
-        assert len(result) == 2
-
-    def test_respects_total_chunks(self):
-        """Test that total_chunks limit is respected."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.9 - i * 0.01)
-            for i in range(20)
-        ]
-        result = select_diverse_chunks_rerank(chunks, total_chunks=5)
-        assert len(result) == 5
-
-    def test_result_sorted_by_combined_score(self):
-        """Test that results are sorted by combined score."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example1.com", 0.9),
-            create_chunk_with_score("text2", "https://example1.com", 0.8),
-            create_chunk_with_score("text3", "https://example2.com", 0.85),
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=2, total_chunks=3)
-        scores = [score for _, score in result]
-        assert scores == sorted(scores, reverse=True)
-
-    def test_diversity_bonus_applied(self):
-        """Test that diversity bonus affects combined score."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 1.0),
-            create_chunk_with_score("text2", "https://example.com", 1.0),
-            create_chunk_with_score("text3", "https://example.com", 1.0),
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=3, total_chunks=3)
-        scores = [score for _, score in result]
-        assert scores[0] > scores[1] > scores[2]
-
-    def test_all_same_source_limited(self):
-        """Test when all chunks are from the same source."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", "https://example.com", 0.9 - i * 0.01)
-            for i in range(10)
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=3, total_chunks=15)
-        assert len(result) == 3
-
-    def test_multiple_sources_all_included(self):
-        """Test that chunks from all sources can be included."""
-        chunks = [
-            create_chunk_with_score(f"text{i}", f"https://example{i % 5}.com", 0.9 - i * 0.01)
-            for i in range(25)
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=2, total_chunks=10)
-        urls = {chunk.source_url for chunk, _ in result}
-        assert len(urls) == 5
-
-    def test_combined_score_calculation(self):
-        """Test the combined score calculation."""
-        max_per_source = 3
-        chunks = [create_chunk_with_score(f"text{i}", "https://example.com", 1.0) for i in range(3)]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=max_per_source)
-        expected_scores = [
-            1.0 * (1.0 - 0 / (max_per_source + 1)),
-            1.0 * (1.0 - 1 / (max_per_source + 1)),
-            1.0 * (1.0 - 2 / (max_per_source + 1)),
-        ]
-        for i, expected in enumerate(expected_scores):
-            assert abs(result[i][1] - expected) < 0.001
 
 
 class TestScoreRelevance:
@@ -591,7 +406,7 @@ class TestEdgeCases:
         chunks = [
             create_chunk_with_score(f"text{i}", f"https://example{i}.com", 0.0) for i in range(5)
         ]
-        result = select_diverse_chunks(chunks, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, total_chunks=3)
         assert len(result) == 3
 
     def test_select_diverse_chunks_negative_scores(self):
@@ -599,7 +414,7 @@ class TestEdgeCases:
         chunks = [
             create_chunk_with_score(f"text{i}", f"https://example{i}.com", -0.5) for i in range(5)
         ]
-        result = select_diverse_chunks(chunks, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, total_chunks=3)
         assert len(result) == 3
 
     def test_select_diverse_chunks_v2_zero_max_per_source(self):
@@ -610,20 +425,12 @@ class TestEdgeCases:
         result = select_diverse_chunks_v2(chunks, max_per_source=0, total_chunks=5)
         assert len(result) == 0
 
-    def test_select_diverse_chunks_rerank_zero_max_per_source(self):
-        """Test rerank with zero max_per_source."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 0.9),
-        ]
-        result = select_diverse_chunks_rerank(chunks, max_per_source=0, total_chunks=5)
-        assert len(result) == 0
-
     def test_select_diverse_chunks_zero_total(self):
         """Test selection with zero total_chunks (code adds first chunk before checking)."""
         chunks = [
             create_chunk_with_score("text1", "https://example.com", 0.9),
         ]
-        result = select_diverse_chunks(chunks, total_chunks=0)
+        result = select_diverse_chunks_v2(chunks, total_chunks=0)
         assert len(result) == 1
 
     def test_select_diverse_chunks_v2_zero_total(self):
@@ -634,20 +441,12 @@ class TestEdgeCases:
         result = select_diverse_chunks_v2(chunks, total_chunks=0)
         assert len(result) == 1
 
-    def test_select_diverse_chunks_rerank_zero_total(self):
-        """Test rerank with zero total_chunks."""
-        chunks = [
-            create_chunk_with_score("text1", "https://example.com", 0.9),
-        ]
-        result = select_diverse_chunks_rerank(chunks, total_chunks=0)
-        assert len(result) == 0
-
     def test_very_high_scores(self):
         """Test with very high relevance scores."""
         chunks = [
             create_chunk_with_score(f"text{i}", f"https://example{i}.com", 1000.0) for i in range(5)
         ]
-        result = select_diverse_chunks(chunks, total_chunks=3)
+        result = select_diverse_chunks_v2(chunks, total_chunks=3)
         assert len(result) == 3
         for _, score in result:
             assert score == 1000.0

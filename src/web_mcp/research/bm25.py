@@ -3,6 +3,7 @@
 import math
 import re
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 
 @dataclass
@@ -16,10 +17,64 @@ class Document:
 
 
 def tokenize(text: str) -> list[str]:
-    """Simple tokenization: lowercase and split on non-alphanumeric."""
+    """Tokenize text preserving short tokens and handling Unicode."""
     if not text:
         return []
-    return [t.lower() for t in re.findall(r"\w+", text) if len(t) > 1]
+    tokens = re.findall(r"\w+|[A-Za-z]{2,}", text.lower())
+    return [t for t in tokens if not t.isdigit()]
+
+
+def _parse_result_date(result: dict) -> datetime | None:
+    """Extract date from search result, trying multiple field names."""
+    for key in ("published_date", "publishedDate", "date", "pubdate"):
+        val = result.get(key) or ""
+        if not val:
+            continue
+        try:
+            if isinstance(val, str):
+                if val.endswith("Z"):
+                    return datetime.fromisoformat(val.replace("Z", "+00:00"))
+                if "T" in val:
+                    return datetime.fromisoformat(val)
+                return datetime.strptime(val[:10], "%Y-%m-%d")
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _freshness_score(result: dict, now: datetime | None = None) -> float:
+    """Calculate freshness bonus (0.0 to 1.0).
+
+    Results from the last 24h get full bonus, halved after that.
+    Older than 30 days gets no freshness bonus.
+
+    Args:
+        result: Search result dict with optional date field.
+        now: Optional fixed 'now' time for testing. Defaults to current time.
+    """
+    dt = _parse_result_date(result)
+    if not dt:
+        return 0.5
+
+    if now is None:
+        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now(UTC)
+
+    # Normalize both to naive UTC for comparison
+    if now.tzinfo is not None:
+        now = now.astimezone(UTC).replace(tzinfo=None)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(UTC).replace(tzinfo=None)
+
+    age_days = abs((now - dt).total_seconds()) / 86400
+
+    if age_days <= 1:
+        return 1.0
+    elif age_days <= 7:
+        return 0.8
+    elif age_days <= 30:
+        return 0.5
+    else:
+        return 0.2
 
 
 class BM25:
@@ -150,19 +205,23 @@ def rerank_search_results(
     query: str,
     title_field: str = "title",
     snippet_field: str = "snippet",
+    freshness_weight: float = 0.15,
 ) -> list[dict]:
-    """Rerank search results using BM25.
+    """Rerank search results using BM25 + optional freshness scoring.
 
     Combines title and snippet for ranking, with title weighted higher.
+    When results have date fields, combines BM25 score with freshness bonus.
 
     Args:
         results: List of search result dictionaries
         query: Original search query
         title_field: Field name for title
         snippet_field: Field name for snippet/content
+        freshness_weight: Weight for freshness component (0.0 to 1.0)
 
     Returns:
-        Reranked list of search results with added 'bm25_score' field
+        Reranked list of search results with added 'bm25_score' and optionally
+        'combined_score' fields
     """
     if not results or not query:
         return results
@@ -184,5 +243,14 @@ def rerank_search_results(
         result = original["original"].copy()
         result["bm25_score"] = round(score, 4)
         reranked.append(result)
+
+    if freshness_weight > 0 and any(_parse_result_date(r) is not None for r in reranked):
+        max_bm25 = max((r.get("bm25_score", 0) for r in reranked), default=1) or 1
+        for r in reranked:
+            bm25_norm = r.get("bm25_score", 0) / max_bm25
+            fresh = _freshness_score(r)
+            combined = bm25_norm * (1 - freshness_weight) + fresh * freshness_weight
+            r["combined_score"] = round(combined, 4)
+        reranked.sort(key=lambda x: x["combined_score"], reverse=True)
 
     return reranked

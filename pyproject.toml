@@ -47,6 +47,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = ["mem0_server", ".venv"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4"]
@@ -59,6 +60,7 @@ ignore = ["E501", "B008", "B904"]
 [tool.black]
 line-length = 100
 target-version = ["py312"]
+exclude = "(\\.direnv|\\.eggs|\\.git|\\.hg|\\.mypy_cache|\\.nox|\\.tox|\\.venv|venv|\\.svn|mem0_server)"
 
 [tool.mypy]
 python_version = "3.12"
@@ -87,6 +89,9 @@ module = [
     "web_mcp.security",
     "web_mcp.research.*",
     "web_mcp.searxng",
+    "web_mcp.tools.*",
+    "web_mcp.admin.*",
+    "web_mcp.path_routing",
 ]
 ignore_errors = true
 

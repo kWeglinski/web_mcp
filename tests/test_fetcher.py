@@ -568,3 +568,59 @@ class TestShouldRetryResponse:
         from web_mcp.fetcher import _should_retry_response
 
         assert _should_retry_response(None) is False
+
+
+class TestProxySupport:
+    """Tests for proxy support in fetcher."""
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_proxy_url(self):
+        """Test that proxy URL from config is passed to tls-client."""
+        mock_response = _make_mock_response("<html><body>Proxied content</body></html>")
+
+        with patch("web_mcp.fetcher.fetch_with_tls_raw") as mock_fetch:
+            mock_fetch.return_value = mock_response
+
+            config = _make_mock_config(proxy_url="http://proxy.example.com:8080")
+            result = await fetch_url("https://example.com", config)
+
+            assert "Proxied content" in result
+            mock_fetch.assert_called_once()
+            call_kwargs = mock_fetch.call_args[1]
+            assert call_kwargs["proxy"] == "http://proxy.example.com:8080"
+
+    @pytest.mark.asyncio
+    async def test_fetch_without_proxy_url(self):
+        """Test that fetch works without proxy when no proxy is configured."""
+        mock_response = _make_mock_response("<html><body>No proxy content</body></html>")
+
+        with patch("web_mcp.fetcher.fetch_with_tls_raw") as mock_fetch:
+            mock_fetch.return_value = mock_response
+
+            config = _make_mock_config(proxy_url=None)
+            result = await fetch_url("https://example.com", config)
+
+            assert "No proxy content" in result
+            mock_fetch.assert_called_once()
+            call_kwargs = mock_fetch.call_args[1]
+            assert call_kwargs["proxy"] is None
+
+    @pytest.mark.asyncio
+    async def test_fetch_url_with_metadata_uses_proxy(self):
+        """Test that fetch_url_with_metadata passes proxy URL."""
+        from web_mcp.fetcher import FetchedContent, fetch_url_with_metadata
+
+        with patch("web_mcp.fetcher.fetch_with_tls_raw") as mock_fetch:
+            mock_fetch.return_value = {
+                "content": "<html><body>Binary content</body></html>",
+                "status_code": 200,
+                "headers": {"Content-Type": "text/html"},
+            }
+
+            config = _make_mock_config(proxy_url="http://proxy.example.com:3128")
+            result = await fetch_url_with_metadata("https://example.com", config)
+
+            assert isinstance(result, FetchedContent)
+            mock_fetch.assert_called_once()
+            call_kwargs = mock_fetch.call_args[1]
+            assert call_kwargs["proxy"] == "http://proxy.example.com:3128"

@@ -1,0 +1,15 @@
+services:
+  mem0-server:
+    build: .
+    container_name: mem0-mcp-server
+    restart: unless-stopped
+    environment:
+      - MEM0_LLM_MODEL=llama3:8b
+      - MEM0_BASE_URL=http://host.docker.internal:1234/v1
+      - MEM0_EMBED_MODEL=BAAI/bge-small-en-v1.5
+      - MEM0_API_KEY=local-secret
+      - MEM0_CHROMA_PATH=/app/chroma_db
+    volumes:
+      - ./chroma_db:/app/chroma_db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

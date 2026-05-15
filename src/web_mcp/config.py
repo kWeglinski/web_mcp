@@ -22,10 +22,11 @@ ENV_PUBLIC_URL = "WEB_MCP_PUBLIC_URL"
 ENV_AUTH_TOKEN = "WEB_MCP_AUTH_TOKEN"
 ENV_CONTENT_TTL = "WEB_MCP_CONTENT_TTL"
 ENV_CONTENT_STORAGE_PATH = "WEB_MCP_CONTENT_STORAGE_PATH"
-# PDF settings
 ENV_PDF_CHARS_PER_PAGE = "WEB_MCP_PDF_CHARS_PER_PAGE"
+# Kiwix configuration
+ENV_KIWIX_URL = "WEB_MCP_KIWIX_URL"
+ENV_KIWIX_WIKIPEDIA_ZIM = "WEB_MCP_KIWIX_WIKIPEDIA_ZIM"
 
-# JavaScript execution settings
 ENV_JS_FETCH_MAX_RESPONSE_SIZE = "WEB_MCP_JS_FETCH_MAX_RESPONSE_SIZE"
 ENV_JS_FETCH_MAX_REQUESTS = "WEB_MCP_JS_FETCH_MAX_REQUESTS"
 ENV_JS_FETCH_MAX_TOTAL_BYTES = "WEB_MCP_JS_FETCH_MAX_TOTAL_BYTES"
@@ -38,6 +39,23 @@ ENV_REQUEST_DELAY_MIN = "WEB_MCP_REQUEST_DELAY_MIN"
 ENV_REQUEST_DELAY_MAX = "WEB_MCP_REQUEST_DELAY_MAX"
 ENV_TLS_CLIENT_IDENTIFIER = "WEB_MCP_TLS_CLIENT_IDENTIFIER"
 ENV_REFERER = "WEB_MCP_REFERER"
+ENV_PROXY_URL = "WEB_MCP_PROXY_URL"
+
+# Admin panel settings
+ENV_ADMIN_ENABLED = "WEB_MCP_ADMIN_ENABLED"
+ENV_ADMIN_API_KEY = "WEB_MCP_ADMIN_API_KEY"
+ENV_ADMIN_PATH = "WEB_MCP_ADMIN_PATH"
+ENV_ADMIN_CONFIG_FILE = "WEB_MCP_ADMIN_CONFIG_FILE"
+
+# Knowledge gatherer settings
+ENV_KNOWLEDGE_EXTRACT_MODEL = "WEB_MCP_KNOWLEDGE_EXTRACT_MODEL"
+ENV_KNOWLEDGE_MAX_FACTS = "WEB_MCP_KNOWLEDGE_MAX_FACTS"
+ENV_KNOWLEDGE_MIN_CONFIDENCE = "WEB_MCP_KNOWLEDGE_MIN_CONFIDENCE"
+ENV_KNOWLEDGE_TTL_DAYS = "WEB_MCP_KNOWLEDGE_TTL_DAYS"
+ENV_KNOWLEDGE_MAX_COLLECTION_SIZE = "WEB_MCP_KNOWLEDGE_MAX_COLLECTION_SIZE"
+ENV_KNOWLEDGE_CLEANUP_INTERVAL = "WEB_MCP_KNOWLEDGE_CLEANUP_INTERVAL"
+ENV_KNOWLEDGE_SEMANTIC_THRESHOLD = "WEB_MCP_KNOWLEDGE_SEMANTIC_THRESHOLD"
+
 
 # Valid extractor types
 VALID_EXTRACTORS = {"trafilatura", "readability", "custom"}
@@ -202,6 +220,45 @@ class Config:
         self.tls_client_identifier: str = os.environ.get(ENV_TLS_CLIENT_IDENTIFIER, "chrome120")
 
         self.referer: str = os.environ.get(ENV_REFERER, "")
+
+        self.proxy_url: str | None = os.environ.get(ENV_PROXY_URL, None)
+
+        # Kiwix configuration
+        self.kiwix_url: str | None = os.environ.get(ENV_KIWIX_URL, None)
+        self.kiwix_wikipedia_zim: str = os.environ.get(ENV_KIWIX_WIKIPEDIA_ZIM, "wikipedia_en")
+
+        # Admin panel settings
+        self.admin_enabled: bool = os.environ.get(ENV_ADMIN_ENABLED, "false").lower() in (
+            "true",
+            "1",
+            "yes",
+        )
+        self.admin_api_key: str = os.environ.get(ENV_ADMIN_API_KEY, "")
+        self.admin_path: str = os.environ.get(ENV_ADMIN_PATH, "/admin")
+        self.admin_config_file: str = os.environ.get(
+            ENV_ADMIN_CONFIG_FILE, "/data/mcp-admin-config.json"
+        )
+
+        # Knowledge gatherer settings
+        self.knowledge_extract_model: str = os.environ.get(ENV_KNOWLEDGE_EXTRACT_MODEL, "gpt-4o")
+        self.knowledge_max_facts: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_MAX_FACTS, "20"), 1, 1000
+        )
+        self.knowledge_min_confidence: float = self._validate_float(
+            os.environ.get(ENV_KNOWLEDGE_MIN_CONFIDENCE, "0.7"), 0.0, 1.0
+        )
+        self.knowledge_ttl_days: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_TTL_DAYS, "90"), 1, 3650
+        )
+        self.knowledge_max_collection_size: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_MAX_COLLECTION_SIZE, "500"), 1, 100000
+        )
+        self.knowledge_cleanup_interval: int = self._validate_int(
+            os.environ.get(ENV_KNOWLEDGE_CLEANUP_INTERVAL, "3600"), 60, 86400
+        )
+        self.knowledge_semantic_threshold: float = self._validate_float(
+            os.environ.get(ENV_KNOWLEDGE_SEMANTIC_THRESHOLD, "0.85"), 0.0, 1.0
+        )
 
     @property
     def http_headers(self) -> dict[str, str]:
