@@ -144,6 +144,63 @@ class TestKiwixClientSearch:
         call_args = mock_client.get.call_args
         assert call_args.kwargs.get("params") == {"q": "hello world"}
 
+    @patch("web_mcp.kiwix_client.get_config")
+    @patch("web_mcp.kiwix_client.httpx.AsyncClient")
+    async def test_search_parses_kiwix_xml(self, mock_client_class, mock_config):
+        mock_config.return_value.kiwix_url = "http://localhost:8000"
+        mock_config.return_value.kiwix_wikipedia_zim = "en.zim"
+
+        mock_response = MagicMock()
+        mock_response.json.side_effect = ValueError("Not JSON")
+        mock_response.text = """<?xml version="1.0" encoding="utf-8"?>
+<results>
+  <result>
+    <title>Python (programming language)</title>
+    <url>./Python_(programming_language)</url>
+    <content>Python is a high-level programming language...</content>
+  </result>
+  <result>
+    <title>Python (genus)</title>
+    <url>./Python_(genus)</url>
+    <content>Python is a genus of venomous snakes...</content>
+  </result>
+</results>"""
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        client = KiwixClient()
+        results = await client.search("python")
+        assert len(results) == 2
+        assert results[0]["title"] == "Python (programming language)"
+        assert results[0]["content"] == "Python is a high-level programming language..."
+        assert results[1]["title"] == "Python (genus)"
+
+    @patch("web_mcp.kiwix_client.get_config")
+    @patch("web_mcp.kiwix_client.httpx.AsyncClient")
+    async def test_search_xml_empty_results(self, mock_client_class, mock_config):
+        mock_config.return_value.kiwix_url = "http://localhost:8000"
+        mock_config.return_value.kiwix_wikipedia_zim = "en.zim"
+
+        mock_response = MagicMock()
+        mock_response.json.side_effect = ValueError("Not JSON")
+        mock_response.text = '<?xml version="1.0" encoding="utf-8"?><results></results>'
+        mock_response.raise_for_status = MagicMock()
+
+        mock_client = AsyncMock()
+        mock_client.get = AsyncMock(return_value=mock_response)
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=None)
+        mock_client_class.return_value = mock_client
+
+        client = KiwixClient()
+        results = await client.search("zzzznotfound")
+        assert results == []
+
 
 class TestKiwixClientGetContent:
     @patch("web_mcp.kiwix_client.get_config")
