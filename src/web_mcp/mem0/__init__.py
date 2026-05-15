@@ -92,7 +92,7 @@ class Mem0Manager:
 
     def add(
         self,
-        messages: str | list[dict[str, str]],
+        messages: str | list[dict[str, str]] | None = None,
         *,
         user_id: str | None = None,
         metadata: dict[str, Any] | None = None,
@@ -117,15 +117,22 @@ class Mem0Manager:
         effective_user_id = user_id or _DEFAULT_USER_ID
 
         # Alias 'message' -> 'messages' for caller compatibility
-        if "message" in kwargs and "messages" not in kwargs:
+        # 'message' in kwargs takes precedence over positional 'messages'
+        if "message" in kwargs:
             kwargs["messages"] = kwargs.pop("message")
 
-        return memory.add(
-            messages=messages,
-            user_id=effective_user_id,
-            metadata=metadata,
-            **kwargs,
-        )
+        # Build kwargs dict to avoid duplicate 'messages' keyword
+        add_kwargs: dict[str, Any] = {
+            "user_id": effective_user_id,
+            "metadata": metadata,
+        }
+        if "messages" in kwargs:
+            add_kwargs["messages"] = kwargs.pop("messages")
+        elif messages is not None:
+            add_kwargs["messages"] = messages
+        add_kwargs.update(kwargs)
+
+        return memory.add(**add_kwargs)
 
     def list(
         self,
