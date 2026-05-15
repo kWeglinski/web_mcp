@@ -39,7 +39,7 @@ def create_session_token(password: str) -> str:
     """
     timestamp = str(int(time.time()))
     message = f"{timestamp}:{password}"
-    signature = hmac.new(password.encode(), message.encode(), hashlib.sha256).hexdigest()
+    signature = hmac.new(password.encode(), message.encode(), hashlib.sha3_256).hexdigest()
     return f"{timestamp}.{signature}"
 
 
@@ -58,7 +58,7 @@ def verify_session_token(token: str, password: str) -> bool:
         timestamp = int(timestamp_str)
         expected_message = f"{timestamp_str}:{password}"
         expected_signature = hmac.new(
-            password.encode(), expected_message.encode(), hashlib.sha256
+            password.encode(), expected_message.encode(), hashlib.sha3_256
         ).hexdigest()
         if not hmac.compare_digest(signature, expected_signature):
             return False
