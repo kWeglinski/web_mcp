@@ -19,7 +19,6 @@ dependencies = [
     "numpy>=1.26.0",
     "pypdfium2>=5.0.0",
     "pypdf>=4.0.0",  # fallback
-    "langchain-huggingface>=0.1.0",
     "mem0ai>=0.1.0",
 ]
 

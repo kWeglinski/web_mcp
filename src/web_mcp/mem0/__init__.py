@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from langchain_huggingface import HuggingFaceEmbeddings
 from mem0 import Memory
 
 from web_mcp.config import get_config
@@ -40,14 +39,10 @@ class Mem0Manager:
 
         llm_model = os.environ.get("WEB_MCP_MEM0_LLM_MODEL", "llama3:8b")
         base_url = os.environ.get("WEB_MCP_MEM0_BASE_URL", "http://host.docker.internal:1234/v1")
-        embed_model = os.environ.get("WEB_MCP_MEM0_EMBED_MODEL", "BAAI/bge-small-en-v1.5")
+        embed_model = os.environ.get("WEB_MCP_MEM0_EMBED_MODEL", "text-embedding-3-small")
         api_key = os.environ.get("WEB_MCP_MEM0_API_KEY", "local-secret")
         chroma_path = os.environ.get("WEB_MCP_MEM0_CHROMA_PATH", "/app/chroma_db")
 
-        # 1. Initialize local embedding model via LangChain
-        embeddings_model = HuggingFaceEmbeddings(model_name=embed_model)
-
-        # 2. Construct the hybrid configuration
         mem0_config = {
             "llm": {
                 "provider": "openai",
@@ -57,7 +52,14 @@ class Mem0Manager:
                     "api_key": api_key,
                 },
             },
-            "embedder": {"provider": "langchain", "config": {"model": embeddings_model}},
+            "embedder": {
+                "provider": "openai",
+                "config": {
+                    "model": embed_model,
+                    "base_url": base_url,
+                    "api_key": api_key,
+                },
+            },
             "vector_store": {
                 "provider": "chroma",
                 "config": {"path": chroma_path, "collection_name": "mcp_memories"},
