@@ -56,7 +56,9 @@ async def research_kiwix(
     llm_config = get_llm_config()
     research_config = get_research_config()
 
-    logger.info(f"[research_kiwix] Starting: query='{query}', max_sources={max_sources}, search_limit={search_results_limit}")
+    logger.info(
+        f"[research_kiwix] Starting: query='{query}', max_sources={max_sources}, search_limit={search_results_limit}"
+    )
 
     if not llm_config.is_configured:
         logger.warning("[research_kiwix] LLM not configured")
@@ -94,14 +96,18 @@ async def research_kiwix(
             if not sub_queries:
                 sub_queries = [query]
             else:
-                logger.info(f"[research_kiwix] Generated {len(sub_queries)} sub-queries: {sub_queries}")
+                logger.info(
+                    f"[research_kiwix] Generated {len(sub_queries)} sub-queries: {sub_queries}"
+                )
         except Exception as e:
             logger.warning(f"[research_kiwix] Sub-query generation failed: {e}")
 
     # Step 2: Kiwix Search
     all_search_results = []
     try:
-        logger.info(f"[research_kiwix] Step 2: Searching Kiwix with {len(sub_queries)} query/queries")
+        logger.info(
+            f"[research_kiwix] Step 2: Searching Kiwix with {len(sub_queries)} query/queries"
+        )
         if len(sub_queries) > 1 and research_config.rewrite_enabled:
             semaphore = asyncio.Semaphore(3)
 
@@ -120,7 +126,9 @@ async def research_kiwix(
         else:
             all_search_results = await kiwix_client.search(effective_query)
 
-        logger.info(f"[research_kiwix] Kiwix search complete: {len(all_search_results)} total results")
+        logger.info(
+            f"[research_kiwix] Kiwix search complete: {len(all_search_results)} total results"
+        )
     except Exception as e:
         logger.error(f"[research_kiwix] Kiwix search failed: {e}", exc_info=True)
         return ResearchResult(
@@ -184,7 +192,9 @@ async def research_kiwix(
     for chunk_list in results:
         all_chunks.extend(chunk_list)
 
-    logger.info(f"[research_kiwix] Step 3 complete: {len(all_chunks)} total chunks from {len(search_results)} articles")
+    logger.info(
+        f"[research_kiwix] Step 3 complete: {len(all_chunks)} total chunks from {len(search_results)} articles"
+    )
 
     if not all_chunks:
         logger.warning("[research_kiwix] No meaningful content retrieved")

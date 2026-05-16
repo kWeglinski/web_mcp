@@ -153,7 +153,9 @@ async def wikipedia_research(
     from web_mcp.research.citations import format_sources
     from web_mcp.research.kiwix_pipeline import research_kiwix
 
-    logger.info(f"[wikipedia_research] Starting research: query='{query}', max_sources={max_sources}, search_limit={search_results_limit}")
+    logger.info(
+        f"[wikipedia_research] Starting research: query='{query}', max_sources={max_sources}, search_limit={search_results_limit}"
+    )
 
     try:
         result = await research_kiwix(
@@ -164,7 +166,9 @@ async def wikipedia_research(
             logger.warning(f"[wikipedia_research] Returned error: {result.answer}")
             return result.answer
 
-        logger.info(f"[wikipedia_research] Completed in {result.elapsed_ms}ms with {len(result.sources)} sources")
+        logger.info(
+            f"[wikipedia_research] Completed in {result.elapsed_ms}ms with {len(result.sources)} sources"
+        )
 
         # Format the output: Answer + Formatted Sources
         output = f"{result.answer}\n\n**Sources:**\n\n{format_sources(result.sources)}"
@@ -183,7 +187,9 @@ async def wikipedia_search(query: str) -> str:
 
     try:
         client = KiwixClient()
-        logger.debug(f"[wikipedia_search] KiwixClient initialized with URL: {client.kiwix_url}, ZIM: {client.kiwix_wikipedia_zim}")
+        logger.debug(
+            f"[wikipedia_search] KiwixClient initialized with URL: {client.kiwix_url}, ZIM: {client.kiwix_wikipedia_zim}"
+        )
 
         results = await client.search(query)
         logger.info(f"[wikipedia_search] Kiwix returned {len(results)} results")
@@ -221,7 +227,9 @@ async def wikipedia_search(query: str) -> str:
             logger.info("[wikipedia_search] No meaningful results after standardization")
             return "*No meaningful Kiwix search results found*"
 
-        logger.info(f"[wikipedia_search] Standardized {len(standardized_results)} results for output")
+        logger.info(
+            f"[wikipedia_search] Standardized {len(standardized_results)} results for output"
+        )
         json_data = {"results": standardized_results}
         return parse_searxng_to_markdown(json_data, query, max_results=5)
 

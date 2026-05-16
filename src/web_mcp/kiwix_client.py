@@ -22,7 +22,9 @@ class KiwixClient:
             raise ValueError("WEB_MCP_KIWIX_URL is not configured.")
 
         self.kiwix_url = self.kiwix_url.rstrip("/")
-        logger.debug(f"KiwixClient initialized: url={self.kiwix_url}, zim={self.kiwix_wikipedia_zim}")
+        logger.debug(
+            f"KiwixClient initialized: url={self.kiwix_url}, zim={self.kiwix_wikipedia_zim}"
+        )
 
     async def search(self, query: str, limit: int = 5) -> list[dict]:
         """
@@ -68,7 +70,9 @@ class KiwixClient:
                 for r in results
             ]
         except httpx.HTTPStatusError as e:
-            logger.error(f"Kiwix search HTTP error: status={e.response.status_code}, url={url}, body={e.response.text[:500]}")
+            logger.error(
+                f"Kiwix search HTTP error: status={e.response.status_code}, url={url}, body={e.response.text[:500]}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Kiwix search request error: {e}")
@@ -103,7 +107,9 @@ class KiwixClient:
         try:
             async with httpx.AsyncClient() as client:
                 response = await client.get(url, params=params)
-                logger.debug(f"Kiwix get_content response: status={response.status_code}, path={path}")
+                logger.debug(
+                    f"Kiwix get_content response: status={response.status_code}, path={path}"
+                )
                 response.raise_for_status()
                 data = response.json()
 
@@ -111,7 +117,9 @@ class KiwixClient:
             logger.debug(f"Kiwix get_content: retrieved {len(content)} chars for path={path}")
             return content
         except httpx.HTTPStatusError as e:
-            logger.error(f"Kiwix get_content HTTP error: status={e.response.status_code}, path={path}, body={e.response.text[:500]}")
+            logger.error(
+                f"Kiwix get_content HTTP error: status={e.response.status_code}, path={path}, body={e.response.text[:500]}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Kiwix get_content request error: path={path}, error={e}")
@@ -157,7 +165,9 @@ class KiwixClient:
             logger.warning(f"Kiwix catalog: unexpected response type {type(data).__name__}")
             return []
         except httpx.HTTPStatusError as e:
-            logger.error(f"Kiwix get_catalog HTTP error: status={e.response.status_code}, body={e.response.text[:500]}")
+            logger.error(
+                f"Kiwix get_catalog HTTP error: status={e.response.status_code}, body={e.response.text[:500]}"
+            )
             raise
         except httpx.RequestError as e:
             logger.error(f"Kiwix get_catalog request error: {e}")
