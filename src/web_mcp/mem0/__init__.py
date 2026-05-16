@@ -48,7 +48,7 @@ class Mem0Manager:
                 "provider": "openai",
                 "config": {
                     "model": llm_model,
-                    "base_url": base_url,
+                    "openai_base_url": base_url,
                     "api_key": api_key,
                 },
             },
