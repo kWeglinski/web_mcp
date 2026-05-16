@@ -20,6 +20,7 @@ dependencies = [
     "pypdfium2>=5.0.0",
     "pypdf>=4.0.0",  # fallback
     "mem0ai>=0.1.0",
+    "chromadb>=0.5.0",
 ]
 
 [project.scripts]
