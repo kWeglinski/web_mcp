@@ -1,5 +1,3 @@
-from typing import Any
-
 from mcp.types import ToolAnnotations
 
 from web_mcp.mem0 import mem0_manager
