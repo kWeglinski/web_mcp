@@ -208,6 +208,16 @@ async def wikipedia_search(query: str) -> str:
             snippet = r.get("snippet") or r.get("content") or r.get("description") or ""
 
             if title and url:
+                # If snippet is empty, fetch the actual article content
+                if not snippet:
+                    try:
+                        snippet = await client.get_content(url, max_length=1500)
+                    except Exception as e:
+                        logger.debug(
+                            f"[wikipedia_search] Failed to fetch content for '{title}': {e}"
+                        )
+                        snippet = ""
+
                 standardized_results.append(
                     {
                         "title": title,

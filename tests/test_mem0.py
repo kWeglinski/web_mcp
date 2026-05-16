@@ -41,7 +41,10 @@ class TestMem0Manager:
 
             call_kwargs = mock_memory_class.from_config.call_args[0][0]
             assert call_kwargs["llm"]["config"]["model"] == "llama3:8b"
-            assert call_kwargs["llm"]["config"]["base_url"] == "http://host.docker.internal:1234/v1"
+            assert (
+                call_kwargs["llm"]["config"]["openai_base_url"]
+                == "http://host.docker.internal:1234/v1"
+            )
             assert call_kwargs["llm"]["config"]["api_key"] == "local-secret"
             assert call_kwargs["embedder"]["provider"] == "openai"
             assert call_kwargs["embedder"]["config"]["model"] == "text-embedding-3-small"
@@ -246,7 +249,7 @@ class TestMem0ManagerWithEnvOverrides:
                 manager.get_memory()
 
                 call_kwargs = mock_memory_class.from_config.call_args[0][0]
-                assert call_kwargs["llm"]["config"]["base_url"] == "http://custom:8080/v1"
+                assert call_kwargs["llm"]["config"]["openai_base_url"] == "http://custom:8080/v1"
         finally:
             del os.environ["WEB_MCP_MEM0_BASE_URL"]
 
