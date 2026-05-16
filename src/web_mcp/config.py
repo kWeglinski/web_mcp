@@ -223,9 +223,9 @@ class Config:
 
         self.proxy_url: str | None = os.environ.get(ENV_PROXY_URL, None)
 
-        # Kiwix configuration
+        # Kiwix/Zimi configuration
         self.kiwix_url: str | None = os.environ.get(ENV_KIWIX_URL, None)
-        self.kiwix_wikipedia_zim: str = os.environ.get(ENV_KIWIX_WIKIPEDIA_ZIM, "wikipedia_en")
+        self.kiwix_wikipedia_zim: str = os.environ.get(ENV_KIWIX_WIKIPEDIA_ZIM, "wikipedia")
 
         # Admin panel settings
         self.admin_enabled: bool = os.environ.get(ENV_ADMIN_ENABLED, "false").lower() in (
