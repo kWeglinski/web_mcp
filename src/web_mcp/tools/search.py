@@ -153,19 +153,28 @@ async def wikipedia_research(
     from web_mcp.research.citations import format_sources
     from web_mcp.research.kiwix_pipeline import research_kiwix
 
+    logger.info(
+        f"[wikipedia_research] Starting research: query='{query}', max_sources={max_sources}, search_limit={search_results_limit}"
+    )
+
     try:
         result = await research_kiwix(
             query, max_sources=max_sources, search_results_limit=search_results_limit
         )
 
         if result.answer.startswith("Error:"):
+            logger.warning(f"[wikipedia_research] Returned error: {result.answer}")
             return result.answer
+
+        logger.info(
+            f"[wikipedia_research] Completed in {result.elapsed_ms}ms with {len(result.sources)} sources"
+        )
 
         # Format the output: Answer + Formatted Sources
         output = f"{result.answer}\n\n**Sources:**\n\n{format_sources(result.sources)}"
         return output
     except Exception as e:
-        logger.error(f"[wikipedia_research] Failed: {e}")
+        logger.error(f"[wikipedia_research] Failed: {e}", exc_info=True)
         return f"*Wikipedia research failed: {e}*"
 
 
@@ -174,32 +183,59 @@ async def wikipedia_search(query: str) -> str:
     from web_mcp.kiwix_client import KiwixClient
     from web_mcp.searxng import parse_searxng_to_markdown
 
-    client = KiwixClient()
-    results = await client.search(query)
+    logger.info(f"[wikipedia_search] Searching Kiwix: query='{query}'")
 
-    if not results:
-        return "*No Kiwix search results found*"
+    try:
+        client = KiwixClient()
+        logger.debug(
+            f"[wikipedia_search] KiwixClient initialized with URL: {client.kiwix_url}, ZIM: {client.kiwix_wikipedia_zim}"
+        )
 
-    # Standardize results to match SearXNG format for reuse of parse_searxng_to_markdown
-    standardized_results = []
-    for r in results:
-        # Kiwix might return different field names, we try to be robust
-        title = r.get("title") or r.get("name") or ""
-        url = r.get("url") or r.get("link") or ""
-        snippet = r.get("snippet") or r.get("content") or r.get("description") or ""
+        results = await client.search(query)
+        logger.info(f"[wikipedia_search] Kiwix returned {len(results)} results")
 
-        if title and url:
-            standardized_results.append(
-                {
-                    "title": title,
-                    "url": url,
-                    "snippet": snippet,
-                    "score": 1.0,
-                }
-            )
+        if not results:
+            logger.info("[wikipedia_search] No results found")
+            return "*No Kiwix search results found*"
 
-    if not standardized_results:
-        return "*No meaningful Kiwix search results found*"
+        # Standardize results to match SearXNG format for reuse of parse_searxng_to_markdown
+        standardized_results = []
+        skipped = 0
+        for r in results:
+            # Kiwix might return different field names, we try to be robust
+            title = r.get("title") or r.get("name") or ""
+            url = r.get("url") or r.get("link") or ""
+            snippet = r.get("snippet") or r.get("content") or r.get("description") or ""
 
-    json_data = {"results": standardized_results}
-    return parse_searxng_to_markdown(json_data, query, max_results=5)
+            if title and url:
+                standardized_results.append(
+                    {
+                        "title": title,
+                        "url": url,
+                        "snippet": snippet,
+                        "score": 1.0,
+                    }
+                )
+            else:
+                skipped += 1
+                logger.debug(f"[wikipedia_search] Skipped result with missing title/url: {r}")
+
+        if skipped:
+            logger.info(f"[wikipedia_search] Skipped {skipped} results with missing title/url")
+
+        if not standardized_results:
+            logger.info("[wikipedia_search] No meaningful results after standardization")
+            return "*No meaningful Kiwix search results found*"
+
+        logger.info(
+            f"[wikipedia_search] Standardized {len(standardized_results)} results for output"
+        )
+        json_data = {"results": standardized_results}
+        return parse_searxng_to_markdown(json_data, query, max_results=5)
+
+    except ValueError as e:
+        logger.error(f"[wikipedia_search] Configuration error: {e}")
+        return f"*Wikipedia search failed: Kiwix not configured ({e})*"
+    except Exception as e:
+        logger.error(f"[wikipedia_search] Failed: {e}", exc_info=True)
+        return f"*Wikipedia search failed: {e}*"

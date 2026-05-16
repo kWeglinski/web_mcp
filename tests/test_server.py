@@ -628,11 +628,13 @@ class TestKnowledgeTools:
     async def test_manage_knowledge_status(self, mock_mem0):
         with patch("web_mcp.mem0.mem0_manager") as mock_manager:
             mock_memory = MagicMock()
-            mock_memory.list.return_value = [
-                MagicMock(metadata={"category": "api", "source_url": "https://example.com"}),
-                MagicMock(metadata={"category": "security", "source_url": "https://example.com"}),
-                MagicMock(metadata={"category": "api", "source_url": "https://other.com"}),
-            ]
+            mock_memory.get_all.return_value = {
+                "results": [
+                    {"metadata": {"category": "api", "source_url": "https://example.com"}},
+                    {"metadata": {"category": "security", "source_url": "https://example.com"}},
+                    {"metadata": {"category": "api", "source_url": "https://other.com"}},
+                ]
+            }
             mock_manager.get_memory.return_value = mock_memory
 
             from web_mcp.server import manage_knowledge_collection
@@ -646,11 +648,13 @@ class TestKnowledgeTools:
     async def test_manage_knowledge_clear(self, mock_mem0):
         with patch("web_mcp.mem0.mem0_manager") as mock_manager:
             mock_memory = MagicMock()
-            mock_memory.list.return_value = [
-                MagicMock(metadata={"type": "knowledge_fact", "id": "1"}),
-                MagicMock(metadata={"type": "knowledge_fact", "id": "2"}),
-                MagicMock(metadata={"type": "user_memory", "id": "3"}),
-            ]
+            mock_memory.get_all.return_value = {
+                "results": [
+                    {"id": "1", "metadata": {"type": "knowledge_fact"}},
+                    {"id": "2", "metadata": {"type": "knowledge_fact"}},
+                    {"id": "3", "metadata": {"type": "user_memory"}},
+                ]
+            }
             mock_manager.get_memory.return_value = mock_memory
 
             from web_mcp.server import manage_knowledge_collection

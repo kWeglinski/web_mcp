@@ -1,5 +1,3 @@
-from typing import Any
-
 from mcp.types import ToolAnnotations
 
 from web_mcp.mem0 import mem0_manager
@@ -21,7 +19,7 @@ async def add_memory_tool(user_id: str, content: str) -> str:
         return f"Error adding memory: {str(e)}"
 
 
-async def search_memory_tool(user_id: str, query: str) -> list[dict[str, Any]]:
+async def search_memory_tool(user_id: str, query: str) -> str:
     """
     Performs semantic retrieval of relevant memory snippets for a specific user.
 
@@ -31,13 +29,19 @@ async def search_memory_tool(user_id: str, query: str) -> list[dict[str, Any]]:
     """
     try:
         memory = mem0_manager.get_memory()
-        results = memory.search(query, user_id=user_id)
-        return results
+        results = memory.search(query, filters={"user_id": user_id})
+        if not results:
+            return f"No memories found for query: '{query}'"
+        lines = [f"Memory search results for: '{query}'\n"]
+        for i, r in enumerate(results, 1):
+            memory_text = r.get("memory", r.get("text", ""))
+            lines.append(f"{i}. {memory_text}")
+        return "\n".join(lines)
     except Exception as e:
-        return [{"error": str(e)}]
+        return f"Error searching memories: {str(e)}"
 
 
-async def get_user_memories_tool(user_id: str) -> list[dict[str, Any]]:
+async def get_user_memories_tool(user_id: str) -> str:
     """
     Provides the full history of stored facts/memories for a specific user.
 
@@ -46,10 +50,17 @@ async def get_user_memories_tool(user_id: str) -> list[dict[str, Any]]:
     """
     try:
         memory = mem0_manager.get_memory()
-        memories = memory.get_all(user_id=user_id)
-        return memories
+        result = memory.get_all(filters={"user_id": user_id})
+        memories = result.get("results", []) if isinstance(result, dict) else result
+        if not memories:
+            return f"No memories found for user: '{user_id}'"
+        lines = [f"Memories for user: '{user_id}'\n"]
+        for i, mem in enumerate(memories, 1):
+            memory_text = mem.get("memory", mem.get("text", ""))
+            lines.append(f"{i}. {memory_text}")
+        return "\n".join(lines)
     except Exception as e:
-        return [{"error": str(e)}]
+        return f"Error getting user memories: {str(e)}"
 
 
 # For registration in TOOL_REGISTRY and register_tools_for_path

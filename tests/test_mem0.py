@@ -46,7 +46,7 @@ class TestMem0Manager:
             assert call_kwargs["embedder"]["provider"] == "openai"
             assert call_kwargs["embedder"]["config"]["model"] == "text-embedding-3-small"
             assert (
-                call_kwargs["embedder"]["config"]["base_url"]
+                call_kwargs["embedder"]["config"]["openai_base_url"]
                 == "http://host.docker.internal:1234/v1"
             )
             assert call_kwargs["embedder"]["config"]["api_key"] == "local-secret"

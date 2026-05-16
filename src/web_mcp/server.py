@@ -307,7 +307,7 @@ async def search_knowledge(
     from web_mcp.mem0 import mem0_manager
 
     memory = mem0_manager.get_memory()
-    results = memory.search(query=query, limit=limit)
+    results = memory.search(query=query, top_k=limit)
 
     if not results:
         return f"No knowledge found for: '{query}'"
@@ -347,12 +347,13 @@ async def manage_knowledge_collection(
     memory = mem0_manager.get_memory()
 
     if action == "status":
-        memories = memory.list()
+        result = memory.get_all(top_k=1000)
+        memories = result.get("results", []) if isinstance(result, dict) else result
         total = len(memories)
         categories = {}
         sources = set()
         for mem in memories:
-            metadata = getattr(mem, "metadata", {}) or {}
+            metadata = mem.get("metadata", {}) or {}
             cat = metadata.get("category", "uncategorized")
             categories[cat] = categories.get(cat, 0) + 1
             src = metadata.get("source_url", "")
@@ -377,12 +378,13 @@ async def manage_knowledge_collection(
         return f"Cleanup result: {result}"
 
     elif action == "clear":
-        memories = memory.list()
+        result = memory.get_all(top_k=1000)
+        memories = result.get("results", []) if isinstance(result, dict) else result
         deleted = 0
         for mem in memories:
-            metadata = getattr(mem, "metadata", {}) or {}
+            metadata = mem.get("metadata", {}) or {}
             if metadata.get("type") == "knowledge_fact":
-                memory.delete(memory_id=mem.id)
+                memory.delete(memory_id=mem.get("id"))
                 deleted += 1
         return f"Cleared {deleted} knowledge facts from collection."
 

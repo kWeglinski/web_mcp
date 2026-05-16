@@ -781,19 +781,14 @@ class TestCleanupTask:
 
         mock_memory = MagicMock()
 
-        # Create mock memory objects
+        # Create mock memory dicts (get_all returns {"results": [...]})
         old_time = (datetime.now(UTC) - timedelta(days=100)).isoformat()
         new_time = (datetime.now(UTC) - timedelta(days=10)).isoformat()
 
-        old_mem = MagicMock()
-        old_mem.id = "old-1"
-        old_mem.metadata = {"created_at": old_time}
+        old_mem = {"id": "old-1", "metadata": {"created_at": old_time}}
+        new_mem = {"id": "new-1", "metadata": {"created_at": new_time}}
 
-        new_mem = MagicMock()
-        new_mem.id = "new-1"
-        new_mem.metadata = {"created_at": new_time}
-
-        mock_memory.list = MagicMock(return_value=[old_mem, new_mem])
+        mock_memory.get_all = MagicMock(return_value={"results": [old_mem, new_mem]})
 
         task = KnowledgeCleanupTask(mock_memory, ttl_days=30)
         result = await task.run_once()
@@ -806,10 +801,8 @@ class TestCleanupTask:
     async def test_cleanup_task_run_once_no_timestamp(self):
         """Memories without timestamps are kept."""
         mock_memory = MagicMock()
-        mem = MagicMock()
-        mem.id = "no-ts-1"
-        mem.metadata = {}
-        mock_memory.list = MagicMock(return_value=[mem])
+        mem = {"id": "no-ts-1", "metadata": {}}
+        mock_memory.get_all = MagicMock(return_value={"results": [mem]})
 
         task = KnowledgeCleanupTask(mock_memory, ttl_days=30)
         result = await task.run_once()
@@ -837,7 +830,7 @@ class TestCleanupLifecycle:
         import web_mcp.knowledge.cleanup as cleanup_module
 
         mock_memory = MagicMock()
-        mock_memory.list = MagicMock(return_value=[])
+        mock_memory.get_all = MagicMock(return_value={"results": []})
 
         with patch("asyncio.create_task") as mock_create_task:
             mock_task = AsyncMock()
@@ -863,7 +856,7 @@ class TestCleanupLifecycle:
     async def test_cleanup_task_error_handling(self):
         """Handles exceptions in run_once gracefully."""
         mock_memory = MagicMock()
-        mock_memory.list = MagicMock(side_effect=RuntimeError("Connection refused"))
+        mock_memory.get_all = MagicMock(side_effect=RuntimeError("Connection refused"))
 
         task = KnowledgeCleanupTask(mock_memory, ttl_days=30)
         result = await task.run_once()

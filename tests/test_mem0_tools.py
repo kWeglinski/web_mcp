@@ -61,8 +61,9 @@ class TestSearchMemoryTool:
 
         with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
             result = await search_memory_tool("test_user", "query")
-            assert result == [{"memory": "result1"}, {"memory": "result2"}]
-            mock_memory.search.assert_called_once_with("query", user_id="test_user")
+            assert "result1" in result
+            assert "result2" in result
+            mock_memory.search.assert_called_once_with("query", filters={"user_id": "test_user"})
 
 
 class TestGetUserMemoriesTool:
@@ -70,18 +71,21 @@ class TestGetUserMemoriesTool:
     @pytest.mark.asyncio
     async def test_get_user_memories_success(self):
         mock_memory = MagicMock()
-        mock_memory.get_all.return_value = [
-            {"memory": "mem1"},
-            {"memory": "mem2"},
-        ]
+        mock_memory.get_all.return_value = {
+            "results": [
+                {"memory": "mem1"},
+                {"memory": "mem2"},
+            ]
+        }
 
         mock_manager = MagicMock()
         mock_manager.get_memory.return_value = mock_memory
 
         with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
             result = await get_user_memories_tool("test_user")
-            assert result == [{"memory": "mem1"}, {"memory": "mem2"}]
-            mock_memory.get_all.assert_called_once_with(user_id="test_user")
+            assert "mem1" in result
+            assert "mem2" in result
+            mock_memory.get_all.assert_called_once_with(filters={"user_id": "test_user"})
 
 
 class TestMem0ToolsRegistry:

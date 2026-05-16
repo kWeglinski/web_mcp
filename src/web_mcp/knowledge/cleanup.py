@@ -52,19 +52,20 @@ class KnowledgeCleanupTask:
         # In production, you'd use a more efficient approach (e.g., tagged timestamps)
         try:
             # Get all memories for the current user
-            memories = self.mem0_memory.list()
+            result = self.mem0_memory.get_all(top_k=1000)
+            memories = result.get("results", []) if isinstance(result, dict) else result
 
             removed = 0
             kept = 0
             for mem in memories:
                 # Check memory metadata for timestamp
-                metadata = getattr(mem, "metadata", {}) or {}
+                metadata = mem.get("metadata", {}) or {}
                 created_at = metadata.get("created_at") or metadata.get("timestamp")
                 if created_at:
                     try:
                         mem_time = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
                         if mem_time < cutoff:
-                            self.mem0_memory.delete(memory_id=mem.id)
+                            self.mem0_memory.delete(memory_id=mem.get("id"))
                             removed += 1
                         else:
                             kept += 1
