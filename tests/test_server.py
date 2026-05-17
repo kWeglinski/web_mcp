@@ -6,58 +6,50 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
-class TestStaticTokenVerifier:
+class TestApiKeyTokenVerifier:
     @pytest.mark.asyncio
     async def test_verify_token_correct(self):
-        from web_mcp.server import StaticTokenVerifier
+        from web_mcp.api_keys import ApiKeyEntry, ApiKeyRegistry
+        from web_mcp.server import ApiKeyTokenVerifier
 
-        verifier = StaticTokenVerifier("my-secret-token")
+        mock_registry = MagicMock(spec=ApiKeyRegistry)
+        mock_registry.get_by_key.return_value = ApiKeyEntry(
+            key="my-secret-token", name="test", uid=0
+        )
+
+        verifier = ApiKeyTokenVerifier(mock_registry)
         result = await verifier.verify_token("my-secret-token")
         assert result is not None
         assert result.token == "my-secret-token"
-        assert result.client_id == "static"
+        assert result.client_id == "0"
 
     @pytest.mark.asyncio
     async def test_verify_token_incorrect(self):
-        from web_mcp.server import StaticTokenVerifier
+        from web_mcp.api_keys import ApiKeyRegistry
+        from web_mcp.server import ApiKeyTokenVerifier
 
-        verifier = StaticTokenVerifier("my-secret-token")
+        mock_registry = MagicMock(spec=ApiKeyRegistry)
+        mock_registry.get_by_key.return_value = None
+
+        verifier = ApiKeyTokenVerifier(mock_registry)
         result = await verifier.verify_token("wrong-token")
         assert result is None
 
     @pytest.mark.asyncio
     async def test_verify_token_empty(self):
-        from web_mcp.server import StaticTokenVerifier
+        from web_mcp.api_keys import ApiKeyRegistry
+        from web_mcp.server import ApiKeyTokenVerifier
 
-        verifier = StaticTokenVerifier("my-secret-token")
+        mock_registry = MagicMock(spec=ApiKeyRegistry)
+        mock_registry.get_by_key.return_value = None
+
+        verifier = ApiKeyTokenVerifier(mock_registry)
         result = await verifier.verify_token("")
         assert result is None
 
-    def test_expected_token_stored(self):
-        from web_mcp.server import StaticTokenVerifier
-
-        verifier = StaticTokenVerifier("token123")
-        assert verifier.expected_token == "token123"
-
 
 class TestCreateAuthConfig:
-    def test_create_auth_config_with_token(self):
-        import os
-
-        with patch.dict(os.environ, {"WEB_MCP_AUTH_TOKEN": "test-token-123"}):
-            with (
-                patch("web_mcp.server.SERVER_HOST", "0.0.0.0"),
-                patch("web_mcp.server.SERVER_PORT", 8000),
-            ):
-                from web_mcp.server import StaticTokenVerifier, create_auth_config
-
-                verifier, settings = create_auth_config()
-                assert verifier is not None
-                assert isinstance(verifier, StaticTokenVerifier)
-                assert settings is not None
-                assert "test-token-123" in verifier.expected_token
-
-    def test_create_auth_config_without_token(self):
+    def test_create_auth_config_with_keys(self):
         import os
 
         if "WEB_MCP_AUTH_TOKEN" in os.environ:
@@ -67,9 +59,36 @@ class TestCreateAuthConfig:
             patch("web_mcp.server.SERVER_HOST", "0.0.0.0"),
             patch("web_mcp.server.SERVER_PORT", 8000),
         ):
+            from web_mcp.api_keys import ApiKeyEntry, ApiKeyRegistry
+            from web_mcp.server import ApiKeyTokenVerifier, create_auth_config
+
+            mock_registry = MagicMock(spec=ApiKeyRegistry)
+            mock_registry.get_all.return_value = [
+                ApiKeyEntry(key="test-token-123", name="test", uid=0)
+            ]
+
+            verifier, settings = create_auth_config(mock_registry)
+            assert verifier is not None
+            assert isinstance(verifier, ApiKeyTokenVerifier)
+            assert settings is not None
+
+    def test_create_auth_config_without_keys(self):
+        import os
+
+        if "WEB_MCP_AUTH_TOKEN" in os.environ:
+            del os.environ["WEB_MCP_AUTH_TOKEN"]
+
+        with (
+            patch("web_mcp.server.SERVER_HOST", "0.0.0.0"),
+            patch("web_mcp.server.SERVER_PORT", 8000),
+        ):
+            from web_mcp.api_keys import ApiKeyRegistry
             from web_mcp.server import create_auth_config
 
-            verifier, settings = create_auth_config()
+            mock_registry = MagicMock(spec=ApiKeyRegistry)
+            mock_registry.get_all.return_value = []
+
+            verifier, settings = create_auth_config(mock_registry)
             assert verifier is None
             assert settings is None
 
@@ -376,9 +395,12 @@ class TestCreateDefaultMCP:
         from web_mcp.server import create_default_mcp
 
         with (
+            patch("web_mcp.server.ApiKeyRegistry") as mock_registry_class,
             patch("web_mcp.server.create_auth_config") as mock_auth,
             patch("web_mcp.server.FastMCP") as mock_mcp_class,
         ):
+            mock_registry = MagicMock()
+            mock_registry_class.return_value = mock_registry
             mock_auth.return_value = (None, None)
             mock_mcp = MagicMock()
             mock_mcp_class.return_value = mock_mcp

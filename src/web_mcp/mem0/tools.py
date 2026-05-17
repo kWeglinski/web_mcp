@@ -1,17 +1,20 @@
 from mcp.types import ToolAnnotations
 
+from web_mcp.api_keys import get_current_user_id
 from web_mcp.mem0 import mem0_manager
 
 
-async def add_memory_tool(user_id: str, content: str) -> str:
+async def add_memory_tool(content: str) -> str:
     """
-    Extracts and stores facts from the provided content for a specific user.
+    Extracts and stores facts from the provided content for the authenticated user.
 
     Args:
-        user_id: Unique identifier for the user.
         content: The text content to extract memories from.
     """
     try:
+        user_id = get_current_user_id()
+        if user_id is None:
+            return "Error: No authenticated user. API key required."
         memory = mem0_manager.get_memory()
         memory.add(content, user_id=user_id)
         return "Memory added successfully"
@@ -19,15 +22,17 @@ async def add_memory_tool(user_id: str, content: str) -> str:
         return f"Error adding memory: {str(e)}"
 
 
-async def search_memory_tool(user_id: str, query: str) -> str:
+async def search_memory_tool(query: str) -> str:
     """
-    Performs semantic retrieval of relevant memory snippets for a specific user.
+    Performs semantic retrieval of relevant memory snippets for the authenticated user.
 
     Args:
-        user_id: Unique identifier for the user.
         query: The semantic query to search for.
     """
     try:
+        user_id = get_current_user_id()
+        if user_id is None:
+            return "Error: No authenticated user. API key required."
         memory = mem0_manager.get_memory()
         results = memory.search(query, filters={"user_id": user_id})
         if not results:
@@ -41,14 +46,14 @@ async def search_memory_tool(user_id: str, query: str) -> str:
         return f"Error searching memories: {str(e)}"
 
 
-async def get_user_memories_tool(user_id: str) -> str:
+async def get_user_memories_tool() -> str:
     """
-    Provides the full history of stored facts/memories for a specific user.
-
-    Args:
-        user_id: Unique identifier for the user.
+    Provides the full history of stored facts/memories for the authenticated user.
     """
     try:
+        user_id = get_current_user_id()
+        if user_id is None:
+            return "Error: No authenticated user. API key required."
         memory = mem0_manager.get_memory()
         result = memory.get_all(filters={"user_id": user_id})
         memories = result.get("results", []) if isinstance(result, dict) else result

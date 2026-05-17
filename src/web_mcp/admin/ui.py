@@ -80,6 +80,15 @@ th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-s
     </div>
     <div id="pathsList"></div>
   </div>
+
+  <!-- API Keys -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem;">
+      <h2 style="margin:0;">API Keys</h2>
+      <button class="btn btn-primary" onclick="openKeyModal()">+ Create Key</button>
+    </div>
+    <div id="keysList"></div>
+  </div>
 </div>
 
 <!-- Modal -->
@@ -114,6 +123,30 @@ th { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-s
         <button type="submit" class="btn btn-primary">Save</button>
       </div>
     </form>
+  </div>
+</div>
+
+<!-- API Key Modal -->
+<div id="keyModalOverlay" class="modal-overlay hidden" onclick="if(event.target===this)closeKeyModal()">
+  <div class="modal">
+    <h2 id="keyModalTitle">Create API Key</h2>
+    <form id="keyForm" onsubmit="return saveKey(event)">
+      <div class="form-group">
+        <label>Key Name</label>
+        <input type="text" id="keyName" placeholder="my-token" required>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn" onclick="closeKeyModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Create</button>
+      </div>
+    </form>
+    <div id="keyResult" class="hidden" style="margin-top:1rem;">
+      <p style="color:var(--muted);font-size:0.8rem;margin-bottom:0.5rem;">Copy this key — it won't be shown again:</p>
+      <div style="display:flex;gap:0.5rem;">
+        <input type="text" id="keyValue" readonly style="flex:1;padding:0.5rem;border:1px solid var(--border);border-radius:6px;background:var(--bg);color:var(--text);font-family:monospace;font-size:0.8rem;">
+        <button class="btn btn-sm" onclick="copyKey()">Copy</button>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -186,6 +219,7 @@ function openModal() {
   document.getElementById('modalTitle').textContent = 'Add Path';
   document.getElementById('pathForm').reset();
   document.getElementById('editPath').value = '';
+  document.getElementById('formPath').disabled = false;
   document.getElementById('modalOverlay').classList.remove('hidden');
 }
 
@@ -205,7 +239,6 @@ async function editPath(path) {
     document.getElementById('formDesc').value = config.description || '';
     document.getElementById('formAuth').checked = config.requires_auth;
     document.getElementById('modalOverlay').classList.remove('hidden');
-    // Check tools
     document.querySelectorAll('#formTools input[type=checkbox]').forEach(cb => {
       cb.checked = (config.enabled_tools || []).includes(cb.value);
     });
@@ -252,6 +285,87 @@ async function deletePath(path) {
   } catch(err) { showToast('Delete failed: ' + err.message, 'error'); }
 }
 
+// API Key management
+async function loadKeys() {
+  try {
+    const data = await fetchJSON(API + '/admin/api-keys');
+    const keys = data ? data.keys : [];
+    if (!keys.length) {
+      document.getElementById('keysList').innerHTML = '<div class="empty">No API keys configured. Click "+ Create Key" to generate one.</div>';
+      return;
+    }
+    document.getElementById('keysList').innerHTML = '<table><thead><tr><th>UID</th><th>Name</th><th>Key Prefix</th><th></th></tr></thead><tbody>' +
+      keys.map(k => '<tr>' +
+        '<td><code>' + k.uid + '</code></td>' +
+        '<td>' + k.name + (k.is_bootstrap ? ' <span class="tag">bootstrap</span>' : '') + '</td>' +
+        '<td><code>' + k.key_prefix + '...</code></td>' +
+        '<td>' + (k.is_bootstrap ? '' :
+          '<button class="btn btn-sm" onclick="renameKey(\\'' + k.key_prefix + '\\')">Rename</button> ' +
+          '<button class="btn btn-sm btn-danger" onclick="deleteKey(\\'' + k.key_prefix + '\\')">Delete</button>') +
+        '</td></tr>'
+      ).join('') + '</tbody></table>';
+  } catch(e) { showToast('Failed to load keys: ' + e.message, 'error'); }
+}
+
+function openKeyModal() {
+  document.getElementById('keyModalTitle').textContent = 'Create API Key';
+  document.getElementById('keyForm').reset();
+  document.getElementById('keyResult').classList.add('hidden');
+  document.getElementById('keyModalOverlay').classList.remove('hidden');
+}
+
+function closeKeyModal() {
+  document.getElementById('keyModalOverlay').classList.add('hidden');
+}
+
+async function saveKey(e) {
+  e.preventDefault();
+  const name = document.getElementById('keyName').value;
+  try {
+    const data = await fetchJSON(API + '/admin/api-keys', {
+      method: 'POST',
+      body: JSON.stringify({ name })
+    });
+    if (data) {
+      document.getElementById('keyValue').value = data.key;
+      document.getElementById('keyResult').classList.remove('hidden');
+      document.getElementById('keyForm').querySelector('button[type=submit]').classList.add('hidden');
+      document.getElementById('keyName').disabled = true;
+      loadKeys();
+    }
+  } catch(err) { showToast('Create failed: ' + err.message, 'error'); }
+  return false;
+}
+
+function copyKey() {
+  const input = document.getElementById('keyValue');
+  input.select();
+  navigator.clipboard.writeText(input.value);
+  showToast('Key copied to clipboard', 'success');
+}
+
+async function renameKey(keyPrefix) {
+  const newName = prompt('Enter new name for key starting with "' + keyPrefix + '":');
+  if (!newName) return;
+  try {
+    await fetchJSON(API + '/admin/api-keys/' + encodeURIComponent(keyPrefix), {
+      method: 'PUT',
+      body: JSON.stringify({ name: newName })
+    });
+    showToast('Key renamed', 'success');
+    loadKeys();
+  } catch(err) { showToast('Rename failed: ' + err.message, 'error'); }
+}
+
+async function deleteKey(keyPrefix) {
+  if (!confirm('Delete API key starting with "' + keyPrefix + '"? This cannot be undone.')) return;
+  try {
+    await fetchJSON(API + '/admin/api-keys/' + encodeURIComponent(keyPrefix), { method: 'DELETE' });
+    showToast('Key deleted', 'success');
+    loadKeys();
+  } catch(err) { showToast('Delete failed: ' + err.message, 'error'); }
+}
+
 function showToast(msg, type) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -262,6 +376,7 @@ function showToast(msg, type) {
 
 loadTools();
 loadPaths();
+loadKeys();
 </script>
 </body>
 </html>"""

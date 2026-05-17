@@ -47,6 +47,11 @@ def create_admin_routes(routing: PathRouter) -> list[Route]:
         Route("/admin/config/paths/{path:path}", admin_router.delete_path, methods=["DELETE"]),
         Route("/admin/tools", admin_router.list_tools, methods=["GET"]),
         Route("/admin/health", admin_router.health, methods=["GET"]),
+        # API key management endpoints (require session)
+        Route("/admin/api-keys", admin_router.list_api_keys, methods=["GET"]),
+        Route("/admin/api-keys", admin_router.create_api_key, methods=["POST"]),
+        Route("/admin/api-keys/{key}", admin_router.update_api_key_name, methods=["PUT"]),
+        Route("/admin/api-keys/{key}", admin_router.delete_api_key, methods=["DELETE"]),
     ]
 
     return routes, admin_router, admin_ui, [AdminSessionMiddleware]
