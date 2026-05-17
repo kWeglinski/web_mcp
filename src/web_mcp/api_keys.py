@@ -101,8 +101,21 @@ class ApiKeyRegistry:
 
 
 def get_current_user_id() -> str | None:
-    return _current_user_id.get()
+    """Get the current user ID from the authenticated API key.
+
+    Returns the API key's uid as a string, or None if not authenticated.
+    """
+    try:
+        from mcp.server.auth.middleware.auth_context import get_access_token
+
+        token = get_access_token()
+        if token is not None:
+            return token.client_id
+    except ImportError:
+        pass
+    return None
 
 
 def set_current_user_id(user_id: str | None) -> None:
-    _current_user_id.set(user_id)
+    """Deprecated: user ID is now derived from the authenticated API key."""
+    pass
