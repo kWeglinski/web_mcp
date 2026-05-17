@@ -70,6 +70,7 @@ class PathRouter:
         from mcp.server.transport_security import TransportSecuritySettings
 
         from web_mcp.admin.storage import ConfigStorage
+        from web_mcp.api_keys import ApiKeyRegistry
         from web_mcp.server import (
             SERVER_HOST,
             SERVER_PORT,
@@ -78,6 +79,7 @@ class PathRouter:
         )
 
         storage = ConfigStorage()
+        registry = ApiKeyRegistry()
         for path, path_config in storage.get_paths().items():
             if path in self._configs:
                 continue
@@ -85,7 +87,7 @@ class PathRouter:
             token_verifier = None
             auth = None
             if requires_auth:
-                token_verifier, auth = create_auth_config()
+                token_verifier, auth = create_auth_config(registry)
             mcp = FastMCP(
                 name=f"web-mcp-{path.lstrip('/')}",
                 host=SERVER_HOST,
@@ -110,6 +112,7 @@ class PathRouter:
         """Register a single path at runtime and add its route to the app."""
         from mcp.server.transport_security import TransportSecuritySettings
 
+        from web_mcp.api_keys import ApiKeyRegistry
         from web_mcp.server import (
             SERVER_HOST,
             SERVER_PORT,
@@ -121,7 +124,7 @@ class PathRouter:
         token_verifier = None
         auth = None
         if requires_auth:
-            token_verifier, auth = create_auth_config()
+            token_verifier, auth = create_auth_config(ApiKeyRegistry())
         mcp = FastMCP(
             name=f"web-mcp-{path.lstrip('/')}",
             host=SERVER_HOST,
