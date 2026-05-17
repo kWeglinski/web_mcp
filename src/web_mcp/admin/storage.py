@@ -72,3 +72,16 @@ class ConfigStorage:
             return list(TOOL_REGISTRY.keys())
         except Exception:
             return []
+
+    def get_api_keys(self) -> list[dict[str, Any]]:
+        """Return all stored API keys (excluding bootstrap token from env)."""
+        return self._cache.get("api_keys", [])
+
+    def set_api_keys(self, keys: list[dict[str, Any]]) -> None:
+        """Replace all stored API keys and persist to disk."""
+        self._cache["api_keys"] = keys
+        self.save()
+
+    def get_version(self) -> int:
+        """Return the config version."""
+        return self._cache.get("version", 1)

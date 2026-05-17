@@ -51,3 +51,32 @@ class HealthOutput(BaseModel):
     status: str
     version: str
     admin_enabled: bool
+
+
+class ApiKeyInfo(BaseModel):
+    """Information about an API key (key masked for security)."""
+
+    name: str
+    uid: int
+    key_prefix: str = Field(..., description="First 8 chars of the key for identification")
+    is_bootstrap: bool = Field(False, description="True if this is the WEB_MCP_AUTH_TOKEN")
+
+
+class ApiKeyCreateInput(BaseModel):
+    """Input for creating a new API key."""
+
+    name: str = Field(..., min_length=1, max_length=100, description="Display name for the token")
+
+
+class ApiKeyCreateOutput(BaseModel):
+    """Output after creating an API key (includes full key)."""
+
+    name: str
+    uid: int
+    key: str = Field(..., description="Full API key — show only once")
+
+
+class ApiKeyUpdateInput(BaseModel):
+    """Input for updating an API key name."""
+
+    name: str = Field(..., min_length=1, max_length=100)

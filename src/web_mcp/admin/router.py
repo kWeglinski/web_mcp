@@ -8,6 +8,10 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from web_mcp.admin.schemas import (
+    ApiKeyCreateInput,
+    ApiKeyCreateOutput,
+    ApiKeyInfo,
+    ApiKeyUpdateInput,
     ConfigOutput,
     HealthOutput,
     PathConfigInput,
@@ -16,6 +20,7 @@ from web_mcp.admin.schemas import (
     ToolsListOutput,
 )
 from web_mcp.admin.storage import ConfigStorage
+from web_mcp.api_keys import ApiKeyRegistry
 from web_mcp.logging import get_logger
 from web_mcp.path_routing import (
     PathRouter,
@@ -32,6 +37,7 @@ class AdminRouter:
     def __init__(self, routing: PathRouter):
         self._routing = routing
         self._storage = ConfigStorage()
+        self._api_keys = ApiKeyRegistry(storage=self._storage)
 
     async def _check_auth(self, request: Request, handler):
         """Internal auth check — used by __init__.py wrapper."""
@@ -208,3 +214,71 @@ class AdminRouter:
                 admin_enabled=True,
             ).model_dump()
         )
+
+    async def list_api_keys(self, request: Request) -> JSONResponse:
+        """GET /admin/api-keys — List all API keys (keys masked)."""
+        try:
+            keys = self._api_keys.get_all()
+            result = []
+            for k in keys:
+                is_bootstrap = k.name == "bootstrap"
+                result.append(
+                    ApiKeyInfo(
+                        name=k.name,
+                        uid=k.uid,
+                        key_prefix=k.key[:8] if len(k.key) >= 8 else k.key,
+                        is_bootstrap=is_bootstrap,
+                    ).model_dump()
+                )
+            return JSONResponse({"keys": result})
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def create_api_key(self, request: Request) -> JSONResponse:
+        """POST /admin/api-keys — Create a new API key."""
+        try:
+            body = await request.json()
+            try:
+                input_data = ApiKeyCreateInput(**body)
+            except Exception:
+                return JSONResponse({"error": "Invalid input: 'name' is required"}, status_code=422)
+
+            entry = self._api_keys.create(name=input_data.name)
+            return JSONResponse(
+                ApiKeyCreateOutput(name=entry.name, uid=entry.uid, key=entry.key).model_dump(),
+                status_code=201,
+            )
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def delete_api_key(self, request: Request) -> JSONResponse:
+        """DELETE /admin/api-keys/{key} — Delete an API key by key string."""
+        try:
+            key = request.path_params["key"]
+            success = self._api_keys.delete(key)
+            if not success:
+                return JSONResponse(
+                    {"error": "Key not found or cannot delete bootstrap token"}, status_code=404
+                )
+            return JSONResponse({"status": "deleted"})
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)
+
+    async def update_api_key_name(self, request: Request) -> JSONResponse:
+        """PUT /admin/api-keys/{key} — Update an API key name."""
+        try:
+            key = request.path_params["key"]
+            body = await request.json()
+            try:
+                input_data = ApiKeyUpdateInput(**body)
+            except Exception:
+                return JSONResponse({"error": "Invalid input: 'name' is required"}, status_code=422)
+
+            success = self._api_keys.update_name(key, input_data.name)
+            if not success:
+                return JSONResponse(
+                    {"error": "Key not found or cannot rename bootstrap token"}, status_code=404
+                )
+            return JSONResponse({"status": "updated", "name": input_data.name})
+        except Exception as e:
+            return JSONResponse({"error": str(e)}, status_code=500)

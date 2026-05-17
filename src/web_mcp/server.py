@@ -11,6 +11,7 @@ from mcp.server.auth.settings import AuthSettings
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
+from web_mcp.api_keys import ApiKeyRegistry
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
 from web_mcp.logging import get_logger, setup_logging
 
@@ -19,27 +20,30 @@ setup_logging()
 logger = get_logger(__name__)
 
 
-class StaticTokenVerifier:
-    """Simple token verifier that validates against a static token."""
+class ApiKeyTokenVerifier:
+    """Validates API keys against the registry and returns user info."""
 
-    def __init__(self, expected_token: str):
-        self.expected_token = expected_token
+    def __init__(self, registry: ApiKeyRegistry):
+        self._registry = registry
 
     async def verify_token(self, token: str) -> AccessToken | None:
-        if token == self.expected_token:
-            return AccessToken(token=token, client_id="static", scopes=[])
-        return None
+        entry = self._registry.get_by_key(token)
+        if entry is None:
+            return None
+        return AccessToken(token=token, client_id=str(entry.uid), scopes=[])
 
 
-def create_auth_config() -> tuple[TokenVerifier | None, AuthSettings | None]:
-    """Create auth configuration if WEB_MCP_AUTH_TOKEN is set."""
+def create_auth_config(
+    registry: ApiKeyRegistry,
+) -> tuple[TokenVerifier | None, AuthSettings | None]:
+    """Create auth configuration using the API key registry."""
     from pydantic import AnyHttpUrl
 
-    auth_token = os.environ.get("WEB_MCP_AUTH_TOKEN")
-    if auth_token:
+    keys = registry.get_all()
+    if keys:
         server_url = f"http://{SERVER_HOST}:{SERVER_PORT}"
         return (
-            StaticTokenVerifier(auth_token),
+            ApiKeyTokenVerifier(registry),
             AuthSettings(
                 issuer_url=AnyHttpUrl(server_url),
                 resource_server_url=AnyHttpUrl(server_url),
@@ -67,9 +71,10 @@ async def lifespan(app):
         stop_cleanup_task()
 
 
-_token_verifier, _auth_settings = create_auth_config()
+_registry = ApiKeyRegistry()
+_token_verifier, _auth_settings = create_auth_config(_registry)
 if _token_verifier:
-    logger.info("Authentication enabled: Bearer token required for MCP endpoints")
+    logger.info("Authentication enabled: API key required for MCP endpoints")
 mcp = FastMCP(
     name="web-browsing",
     instructions="A web browsing MCP server that extracts content from URLs with context optimization. "
@@ -529,7 +534,8 @@ def register_tools_for_path(mcp: FastMCP, tool_names: list[str]) -> None:
 
 def create_default_mcp() -> FastMCP:
     """Create the default MCP instance with all tools."""
-    _token_verifier, _auth_settings = create_auth_config()
+    registry = ApiKeyRegistry()
+    _token_verifier, _auth_settings = create_auth_config(registry)
     return FastMCP(
         name="web-browsing",
         instructions="A web browsing MCP server that extracts content from URLs with context optimization. "

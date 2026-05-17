@@ -28,10 +28,13 @@ class TestAddMemoryTool:
         mock_manager = MagicMock()
         mock_manager.get_memory.return_value = mock_memory
 
-        with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
-            result = await add_memory_tool("test_user", "test message")
+        with (
+            patch("web_mcp.mem0.tools.mem0_manager", mock_manager),
+            patch("web_mcp.mem0.tools.get_current_user_id", return_value="42"),
+        ):
+            result = await add_memory_tool("test message")
             assert result == "Memory added successfully"
-            mock_memory.add.assert_called_once_with("test message", user_id="test_user")
+            mock_memory.add.assert_called_once_with("test message", user_id="42")
 
     @pytest.mark.asyncio
     async def test_add_memory_error(self):
@@ -41,9 +44,18 @@ class TestAddMemoryTool:
         mock_manager = MagicMock()
         mock_manager.get_memory.return_value = mock_memory
 
-        with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
-            result = await add_memory_tool("test_user", "test message")
+        with (
+            patch("web_mcp.mem0.tools.mem0_manager", mock_manager),
+            patch("web_mcp.mem0.tools.get_current_user_id", return_value="42"),
+        ):
+            result = await add_memory_tool("test message")
             assert "API error" in result
+
+    @pytest.mark.asyncio
+    async def test_add_memory_no_user(self):
+        with patch("web_mcp.mem0.tools.get_current_user_id", return_value=None):
+            result = await add_memory_tool("test message")
+            assert "No authenticated user" in result
 
 
 class TestSearchMemoryTool:
@@ -59,11 +71,20 @@ class TestSearchMemoryTool:
         mock_manager = MagicMock()
         mock_manager.get_memory.return_value = mock_memory
 
-        with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
-            result = await search_memory_tool("test_user", "query")
+        with (
+            patch("web_mcp.mem0.tools.mem0_manager", mock_manager),
+            patch("web_mcp.mem0.tools.get_current_user_id", return_value="42"),
+        ):
+            result = await search_memory_tool("query")
             assert "result1" in result
             assert "result2" in result
-            mock_memory.search.assert_called_once_with("query", filters={"user_id": "test_user"})
+            mock_memory.search.assert_called_once_with("query", filters={"user_id": "42"})
+
+    @pytest.mark.asyncio
+    async def test_search_memory_no_user(self):
+        with patch("web_mcp.mem0.tools.get_current_user_id", return_value=None):
+            result = await search_memory_tool("query")
+            assert "No authenticated user" in result
 
 
 class TestGetUserMemoriesTool:
@@ -81,11 +102,20 @@ class TestGetUserMemoriesTool:
         mock_manager = MagicMock()
         mock_manager.get_memory.return_value = mock_memory
 
-        with patch("web_mcp.mem0.tools.mem0_manager", mock_manager):
-            result = await get_user_memories_tool("test_user")
+        with (
+            patch("web_mcp.mem0.tools.mem0_manager", mock_manager),
+            patch("web_mcp.mem0.tools.get_current_user_id", return_value="42"),
+        ):
+            result = await get_user_memories_tool()
             assert "mem1" in result
             assert "mem2" in result
-            mock_memory.get_all.assert_called_once_with(filters={"user_id": "test_user"})
+            mock_memory.get_all.assert_called_once_with(filters={"user_id": "42"})
+
+    @pytest.mark.asyncio
+    async def test_get_user_memories_no_user(self):
+        with patch("web_mcp.mem0.tools.get_current_user_id", return_value=None):
+            result = await get_user_memories_tool()
+            assert "No authenticated user" in result
 
 
 class TestMem0ToolsRegistry:
