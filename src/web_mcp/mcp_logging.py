@@ -276,11 +276,18 @@ def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: loggi
             f"session={session_id_param} content-length={len(body)}"
         )
 
-        # Cache body in scope so the original handler can read it again
-        scope["extensions"] = scope.get("extensions") or {}
-        scope["extensions"]["http.request"] = lambda *_: [body]
+        # Cache body and intercept receive so the original handler can read it again
+        _cached_body: bytearray = bytearray(body)
+        _body_consumed = False
 
-        await original_handle_post(self, scope, receive, send)
+        async def caching_receive() -> dict[str, Any]:
+            nonlocal _body_consumed
+            if not _body_consumed:
+                _body_consumed = True
+                return {"type": "http.request", "body": bytes(_cached_body), "more_body": False}
+            return await receive()
+
+        await original_handle_post(self, scope, caching_receive, send)
 
     SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
 
