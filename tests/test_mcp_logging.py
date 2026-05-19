@@ -1,13 +1,14 @@
 """Unit tests for MCP protocol and lifecycle logging."""
 
 import logging
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from web_mcp.mcp_logging import (
     REQUEST_ID_CTX,
     _log_msg,
+    _make_intercepting_receive,
     _next_seq,
     _parse_message_id,
     _wrap_tool_call,
@@ -222,3 +223,165 @@ class TestIntegration:
             pytest.fail(f"_log_msg raised unexpected exception: {e}")
         finally:
             logger.removeHandler(handler)
+
+
+class TestInterceptingReceive:
+    """Tests for _make_intercepting_receive ASGI receive interceptor."""
+
+    @pytest.mark.asyncio
+    async def test_returns_body_message_unchanged(self, caplog):
+        """Test that the interceptor returns the body message so the handler can read it."""
+        caplog.set_level(logging.DEBUG)
+
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {
+            "type": "http.request",
+            "body": b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+            "more_body": False,
+        }
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        msg = await interceptor()
+
+        assert msg["type"] == "http.request"
+        assert msg["body"] == b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+        assert msg["more_body"] is False
+
+    @pytest.mark.asyncio
+    async def test_logs_body_once(self, caplog):
+        """Test that the body is logged only on the first http.request message."""
+        caplog.set_level(logging.DEBUG)
+
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {
+            "type": "http.request",
+            "body": b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+            "more_body": False,
+        }
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+        protocol_logger.setLevel(logging.DEBUG)
+        lifecycle_logger.setLevel(logging.DEBUG)
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        # First call — should log and return body
+        await interceptor()
+        # Second call — should NOT log, just forward
+        await interceptor()
+
+        assert len([r for r in caplog.records if "SSE REQUEST" in r.message]) == 1
+
+    @pytest.mark.asyncio
+    async def test_forwards_non_body_messages(self):
+        """Test that non-body messages are forwarded unchanged."""
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {"type": "http.disconnect"}
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        msg = await interceptor()
+        assert msg == {"type": "http.disconnect"}
+
+    @pytest.mark.asyncio
+    async def test_forwards_empty_body_message(self):
+        """Test that http.request with empty body is forwarded without logging."""
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {"type": "http.request", "body": b"", "more_body": False}
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        msg = await interceptor()
+        assert msg["body"] == b""
+
+    @pytest.mark.asyncio
+    async def test_logs_session_id_and_path(self, caplog):
+        """Test that session ID and path are included in lifecycle log."""
+        caplog.set_level(logging.INFO)
+
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {
+            "type": "http.request",
+            "body": b'{"jsonrpc":"2.0","id":1,"method":"tools/list"}',
+            "more_body": False,
+        }
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+        lifecycle_logger.setLevel(logging.INFO)
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "abc-123", "/search/messages", protocol_logger, lifecycle_logger
+        )
+
+        await interceptor()
+
+        assert any("abc-123" in r.message for r in caplog.records)
+        assert any("/search/messages" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_logs_request_id_from_body(self, caplog):
+        """Test that the JSON-RPC request ID is extracted and logged."""
+        caplog.set_level(logging.DEBUG)
+
+        mock_receive = AsyncMock()
+        mock_receive.return_value = {
+            "type": "http.request",
+            "body": b'{"jsonrpc":"2.0","id":"req-456","method":"tools/call"}',
+            "more_body": False,
+        }
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+        protocol_logger.setLevel(logging.DEBUG)
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        await interceptor()
+
+        assert any("req-456" in r.message for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_multiple_body_chunks(self):
+        """Test handling of chunked body (multiple http.request messages)."""
+        mock_receive = AsyncMock()
+        mock_receive.side_effect = [
+            {"type": "http.request", "body": b'{"jsonrpc":"2.0"', "more_body": True},
+            {"type": "http.request", "body": b',"id":1,"method":"tools/list"}', "more_body": False},
+        ]
+
+        protocol_logger = logging.getLogger("web_mcp.protocol")
+        lifecycle_logger = logging.getLogger("web_mcp.lifecycle")
+
+        interceptor = _make_intercepting_receive(
+            mock_receive, "test-session", "/messages", protocol_logger, lifecycle_logger
+        )
+
+        # First chunk — should log the full assembled body
+        msg1 = await interceptor()
+        assert msg1["body"] == b'{"jsonrpc":"2.0"'
+
+        # Second chunk — should forward without logging
+        msg2 = await interceptor()
+        assert msg2["body"] == b',"id":1,"method":"tools/list"}'
