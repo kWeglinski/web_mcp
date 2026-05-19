@@ -276,11 +276,11 @@ def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: loggi
             f"session={session_id_param} content-length={len(body)}"
         )
 
-        # Restore body for the original handler
-        async def new_receive():
-            return await receive()
+        # Cache body in scope so the original handler can read it again
+        scope["extensions"] = scope.get("extensions") or {}
+        scope["extensions"]["http.request"] = lambda *_: [body]
 
-        await original_handle_post(self, scope, new_receive, send)
+        await original_handle_post(self, scope, receive, send)
 
     SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
 
