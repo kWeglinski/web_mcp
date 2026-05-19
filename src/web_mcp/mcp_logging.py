@@ -17,6 +17,7 @@ import asyncio
 import json
 import logging
 import sys
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from io import TextIOWrapper
@@ -246,6 +247,44 @@ def _wrap_mcp_run(lifecycle_logger: logging.Logger) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _make_intercepting_receive(
+    receive: Any,
+    session_id: str,
+    path: str,
+    protocol_logger: logging.Logger,
+    lifecycle_logger: logging.Logger,
+) -> Callable[[], Any]:
+    """Create an ASGI receive interceptor that logs POST body without consuming it.
+
+    Returns a coroutine function that can be passed to any ASGI handler.
+    The first ``http.request`` message is logged; subsequent messages are
+    forwarded unchanged. The original body is preserved so the handler
+    can read it via ``request.body()``.
+    """
+    _received_body: bytearray = bytearray()
+    _body_logged = False
+
+    async def intercepting_receive() -> dict[str, Any]:
+        nonlocal _body_logged
+        msg = await receive()
+        if not _body_logged and msg.get("type") == "http.request" and msg.get("body"):
+            _received_body.extend(msg["body"])
+            _body_logged = True
+            rid = _parse_message_id(_received_body.decode("utf-8", errors="replace"))
+            seq = _next_seq()
+            payload = _received_body.decode("utf-8", errors="replace")[:500]
+            if len(_received_body) > 500:
+                payload += f" ... ({len(_received_body) - 500} more bytes)"
+            protocol_logger.debug(f"[seq:{seq}] SSE POST [{session_id}] {rid}: {payload}")
+            lifecycle_logger.info(
+                f"[{rid or session_id}] SSE REQUEST: POST {path} "
+                f"session={session_id} content-length={len(_received_body)}"
+            )
+        return msg
+
+    return intercepting_receive
+
+
 def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: logging.Logger) -> None:
     """Patch SseServerTransport to log HTTP-level JSON-RPC messages."""
     try:
@@ -256,33 +295,13 @@ def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: loggi
     original_handle_post = SseServerTransport.handle_post_message
 
     async def wrapped_handle_post_message(self, scope: Any, receive: Any, send: Any) -> None:
-        _received_body: bytearray = bytearray()
-        _body_logged = False
-
-        async def intercepting_receive() -> dict[str, Any]:
-            nonlocal _body_logged
-            msg = await receive()
-            if not _body_logged and msg.get("type") == "http.request" and msg.get("body"):
-                _received_body.extend(msg["body"])
-                _body_logged = True
-                qs = scope.get("query_string", b"")
-                qs_str = qs.decode() if isinstance(qs, bytes) else str(qs)
-                session_id_param = (
-                    qs_str.split("session_id=")[1] if "session_id=" in qs_str else "unknown"
-                )
-                rid = _parse_message_id(_received_body.decode("utf-8", errors="replace"))
-                seq = _next_seq()
-                path = scope.get("path", "?")
-                payload = _received_body.decode("utf-8", errors="replace")[:500]
-                if len(_received_body) > 500:
-                    payload += f" ... ({len(_received_body) - 500} more bytes)"
-                protocol_logger.debug(f"[seq:{seq}] SSE POST [{session_id_param}] {rid}: {payload}")
-                lifecycle_logger.info(
-                    f"[{rid or session_id_param}] SSE REQUEST: POST {path} "
-                    f"session={session_id_param} content-length={len(_received_body)}"
-                )
-            return msg
-
+        qs = scope.get("query_string", b"")
+        qs_str = qs.decode() if isinstance(qs, bytes) else str(qs)
+        session_id = qs_str.split("session_id=")[1] if "session_id=" in qs_str else "unknown"
+        path = scope.get("path", "?")
+        intercepting_receive = _make_intercepting_receive(
+            receive, session_id, path, protocol_logger, lifecycle_logger
+        )
         await original_handle_post(self, scope, intercepting_receive, send)
 
     SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
