@@ -256,38 +256,34 @@ def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: loggi
     original_handle_post = SseServerTransport.handle_post_message
 
     async def wrapped_handle_post_message(self, scope: Any, receive: Any, send: Any) -> None:
-        from starlette.requests import Request
+        _received_body: bytearray = bytearray()
+        _body_logged = False
 
-        request = Request(scope, receive)
-        body = await request.body()
+        async def intercepting_receive() -> dict[str, Any]:
+            nonlocal _body_logged
+            msg = await receive()
+            if not _body_logged and msg.get("type") == "http.request" and msg.get("body"):
+                _received_body.extend(msg["body"])
+                _body_logged = True
+                qs = scope.get("query_string", b"")
+                qs_str = qs.decode() if isinstance(qs, bytes) else str(qs)
+                session_id_param = (
+                    qs_str.split("session_id=")[1] if "session_id=" in qs_str else "unknown"
+                )
+                rid = _parse_message_id(_received_body.decode("utf-8", errors="replace"))
+                seq = _next_seq()
+                path = scope.get("path", "?")
+                payload = _received_body.decode("utf-8", errors="replace")[:500]
+                if len(_received_body) > 500:
+                    payload += f" ... ({len(_received_body) - 500} more bytes)"
+                protocol_logger.debug(f"[seq:{seq}] SSE POST [{session_id_param}] {rid}: {payload}")
+                lifecycle_logger.info(
+                    f"[{rid or session_id_param}] SSE REQUEST: POST {path} "
+                    f"session={session_id_param} content-length={len(_received_body)}"
+                )
+            return msg
 
-        session_id_param = request.query_params.get("session_id", "unknown")
-        rid = _parse_message_id(body.decode("utf-8", errors="replace"))
-        seq = _next_seq()
-
-        payload = body.decode("utf-8", errors="replace")[:500]
-        if len(body) > 500:
-            payload += f" ... ({len(body) - 500} more bytes)"
-
-        protocol_logger.debug(f"[seq:{seq}] SSE POST [{session_id_param}] {rid}: {payload}")
-
-        lifecycle_logger.info(
-            f"[{rid or session_id_param}] SSE REQUEST: POST {request.url.path} "
-            f"session={session_id_param} content-length={len(body)}"
-        )
-
-        # Cache body and intercept receive so the original handler can read it again
-        _cached_body: bytearray = bytearray(body)
-        _body_consumed = False
-
-        async def caching_receive() -> dict[str, Any]:
-            nonlocal _body_consumed
-            if not _body_consumed:
-                _body_consumed = True
-                return {"type": "http.request", "body": bytes(_cached_body), "more_body": False}
-            return await receive()
-
-        await original_handle_post(self, scope, caching_receive, send)
+        await original_handle_post(self, scope, intercepting_receive, send)
 
     SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
 
