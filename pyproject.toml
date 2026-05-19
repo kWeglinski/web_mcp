@@ -94,6 +94,7 @@ module = [
     "web_mcp.tools.*",
     "web_mcp.admin.*",
     "web_mcp.path_routing",
+    "web_mcp.mcp_logging",
 ]
 ignore_errors = true
 
