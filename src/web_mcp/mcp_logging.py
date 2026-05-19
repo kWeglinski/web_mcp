@@ -285,6 +285,8 @@ def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: loggi
     SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
 
     lifecycle_logger.info("MCP SSE transport: HTTP-level logging enabled")
+
+
 def setup_mcp_logging() -> None:
     """Set up comprehensive MCP protocol logging.
 
