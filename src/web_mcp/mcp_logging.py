@@ -246,6 +246,47 @@ def _wrap_mcp_run(lifecycle_logger: logging.Logger) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _wrap_sse_transport(lifecycle_logger: logging.Logger, protocol_logger: logging.Logger) -> None:
+    """Patch SseServerTransport to log HTTP-level JSON-RPC messages."""
+    try:
+        from mcp.server.sse import SseServerTransport
+    except ImportError:
+        return
+
+    original_handle_post = SseServerTransport.handle_post_message
+
+    async def wrapped_handle_post_message(self, scope: Any, receive: Any, send: Any) -> None:
+        from starlette.requests import Request
+
+        request = Request(scope, receive)
+        body = await request.body()
+
+        session_id_param = request.query_params.get("session_id", "unknown")
+        rid = _parse_message_id(body.decode("utf-8", errors="replace"))
+        seq = _next_seq()
+
+        payload = body.decode("utf-8", errors="replace")[:500]
+        if len(body) > 500:
+            payload += f" ... ({len(body) - 500} more bytes)"
+
+        protocol_logger.debug(f"[seq:{seq}] SSE POST [{session_id_param}] {rid}: {payload}")
+
+        lifecycle_logger.info(
+            f"[{rid or session_id_param}] SSE REQUEST: POST {request.url.path} "
+            f"session={session_id_param} content-length={len(body)}"
+        )
+
+        # Restore body for the original handler
+        async def new_receive():
+            return await receive()
+
+        await original_handle_post(self, scope, new_receive, send)
+
+    SseServerTransport.handle_post_message = wrapped_handle_post_message  # type: ignore[assignment]
+
+    lifecycle_logger.info("MCP SSE transport: HTTP-level logging enabled")
+
+
 def setup_mcp_logging() -> None:
     """Set up comprehensive MCP protocol logging.
 
@@ -286,6 +327,9 @@ def setup_mcp_logging() -> None:
     fastmcp_server_mod.stdio_server = _logging_stdio_server  # type: ignore[assignment]
 
     # Also patch at the module level where it's imported
+
+    # Patch SSE transport for HTTP/SSE mode
+    _wrap_sse_transport(lifecycle_logger, protocol_logger)
 
     # Patch tool call lifecycle
     _wrap_tool_call(lifecycle_logger)
