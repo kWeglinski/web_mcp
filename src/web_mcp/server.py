@@ -14,8 +14,10 @@ from mcp.types import ToolAnnotations
 from web_mcp.api_keys import ApiKeyRegistry
 from web_mcp.content_store import get_content_store, start_cleanup_task, stop_cleanup_task
 from web_mcp.logging import get_logger, setup_logging
+from web_mcp.mcp_logging import setup_mcp_logging
 
 setup_logging()
+setup_mcp_logging()
 
 logger = get_logger(__name__)
 
